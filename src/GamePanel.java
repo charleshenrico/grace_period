@@ -13,15 +13,8 @@ public class GamePanel extends JPanel implements ActionListener {
     final double LOGICAL_WIDTH = 101 * 40.0;
     final double LOGICAL_HEIGHT = 61 * 40.0;
 
-    int playerSize = 30;
-
     // Spawn in the middle of the GATE
-    int playerX = (50 * 40) + 5;
-    int playerY = (58 * 40) + 5;
-
-    int playerSpeed = 5;
-
-    boolean upPressed, downPressed, leftPressed, rightPressed;
+    Player player;
 
     enum State { MAIN_MENU, SHOW_MAP, ZOOMING, PLAYING, FINISHED }
     State currentState = State.MAIN_MENU;
@@ -40,6 +33,15 @@ public class GamePanel extends JPanel implements ActionListener {
         this.setFocusable(true);
 
         mapM = new MapManager(MazeGenerator.generateMap());
+
+        // Spawn player in the center of the Gate tile (tile 3)
+        player = new Player(
+            (50 * 40) + 5,   // x: middle column, nudged 5px
+            (58 * 40) + 5,   // y: bottom area gate row, nudged 5px
+            Color.RED,
+            Color.BLACK,
+            "P1"
+        );
 
         try {
             bgImage = ImageIO.read(getClass().getResourceAsStream("/background.jpg"));
@@ -60,19 +62,21 @@ public class GamePanel extends JPanel implements ActionListener {
                     if (code == KeyEvent.VK_ESCAPE) System.exit(0);
                     return;
                 }
-
-                if(code == KeyEvent.VK_W || code == KeyEvent.VK_UP) upPressed = true;
-                if(code == KeyEvent.VK_S || code == KeyEvent.VK_DOWN) downPressed = true;
-                if(code == KeyEvent.VK_A || code == KeyEvent.VK_LEFT) leftPressed = true;
-                if(code == KeyEvent.VK_D || code == KeyEvent.VK_RIGHT) rightPressed = true;
-                if(code == KeyEvent.VK_ESCAPE) System.exit(0);
+                // Route key inputs to the player
+                if (code == KeyEvent.VK_W || code == KeyEvent.VK_UP)    player.upPressed    = true;
+                if (code == KeyEvent.VK_S || code == KeyEvent.VK_DOWN)  player.downPressed  = true;
+                if (code == KeyEvent.VK_A || code == KeyEvent.VK_LEFT)  player.leftPressed  = true;
+                if (code == KeyEvent.VK_D || code == KeyEvent.VK_RIGHT) player.rightPressed = true;
+                // DASH
+                if (code == KeyEvent.VK_SPACE) player.dashPressed = true;
+                if (code == KeyEvent.VK_ESCAPE) System.exit(0);
             }
             public void keyReleased(KeyEvent e) {
                 int code = e.getKeyCode();
-                if(code == KeyEvent.VK_W || code == KeyEvent.VK_UP) upPressed = false;
-                if(code == KeyEvent.VK_S || code == KeyEvent.VK_DOWN) downPressed = false;
-                if(code == KeyEvent.VK_A || code == KeyEvent.VK_LEFT) leftPressed = false;
-                if(code == KeyEvent.VK_D || code == KeyEvent.VK_RIGHT) rightPressed = false;
+                if (code == KeyEvent.VK_W || code == KeyEvent.VK_UP)    player.upPressed    = false;
+                if (code == KeyEvent.VK_S || code == KeyEvent.VK_DOWN)  player.downPressed  = false;
+                if (code == KeyEvent.VK_A || code == KeyEvent.VK_LEFT)  player.leftPressed  = false;
+                if (code == KeyEvent.VK_D || code == KeyEvent.VK_RIGHT) player.rightPressed = false;
             }
         });
 
@@ -111,8 +115,8 @@ public class GamePanel extends JPanel implements ActionListener {
             currentScaleX = startScaleX + (TARGET_ZOOM - startScaleX) * progress;
             currentScaleY = startScaleY + (TARGET_ZOOM - startScaleY) * progress;
 
-            double targetCamX = (getWidth() / 2.0) - (playerX + playerSize / 2.0) * TARGET_ZOOM;
-            double targetCamY = (getHeight() / 2.0) - (playerY + playerSize / 2.0) * TARGET_ZOOM;
+            double targetCamX = (getWidth() / 2.0) - (player.x + player.size / 2.0) * TARGET_ZOOM;
+            double targetCamY = (getHeight() / 2.0) - (player.y + player.size / 2.0) * TARGET_ZOOM;
 
             camX = targetCamX * progress;
             camY = targetCamY * progress;
@@ -122,66 +126,25 @@ public class GamePanel extends JPanel implements ActionListener {
             }
         }
         else if (currentState == State.PLAYING) {
-            if (upPressed) {
-                playerY -= playerSpeed;
-                if (isColliding(playerX, playerY)) playerY += playerSpeed;
-            }
-            if (downPressed) {
-                playerY += playerSpeed;
-                if (isColliding(playerX, playerY)) playerY -= playerSpeed;
-            }
-            if (leftPressed) {
-                playerX -= playerSpeed;
-                if (isColliding(playerX, playerY)) playerX += playerSpeed;
-            }
-            if (rightPressed) {
-                playerX += playerSpeed;
-                if (isColliding(playerX, playerY)) playerX -= playerSpeed;
-            }
-
+            // Delegate movement + collision to the Player class
+            player.update(mapM.mapLayout);
+ 
+            // Camera follows player
             currentScaleX = TARGET_ZOOM;
             currentScaleY = TARGET_ZOOM;
-            camX = (getWidth() / 2.0) - (playerX + playerSize / 2.0) * TARGET_ZOOM;
-            camY = (getHeight() / 2.0) - (playerY + playerSize / 2.0) * TARGET_ZOOM;
-
-            int centerCol = (playerX + playerSize / 2) / 40;
-            int centerRow = (playerY + playerSize / 2) / 40;
-
-            if (centerRow >= 0 && centerRow < mapM.mapLayout.length &&
-                    centerCol >= 0 && centerCol < mapM.mapLayout[0].length) {
-                // Check if reached Physci (tile 2)
-                if (mapM.mapLayout[centerRow][centerCol] == 2) {
+            camX = (getWidth()  / 2.0) - (player.x + player.size / 2.0) * TARGET_ZOOM;
+            camY = (getHeight() / 2.0) - (player.y + player.size / 2.0) * TARGET_ZOOM;
+ 
+            // Win condition: player center is on Physci tile (2)
+            int col = player.getCenterCol();
+            int row = player.getCenterRow();
+            if (row >= 0 && row < mapM.mapLayout.length &&
+                col >= 0 && col < mapM.mapLayout[0].length) {
+                if (mapM.mapLayout[row][col] == 2) {
                     currentState = State.FINISHED;
                 }
             }
         }
-    }
-
-    //Not allow passing through walls
-    private boolean isColliding(int x, int y) {
-        int leftCol = x / 40;
-        int rightCol = (x + playerSize - 1) / 40;
-        int topRow = y / 40;
-        int bottomRow = (y + playerSize - 1) / 40;
-
-        if (leftCol < 0 || rightCol >= mapM.mapLayout[0].length ||
-                topRow < 0 || bottomRow >= mapM.mapLayout.length) {
-            return true;
-        }
-
-        // Get the tile numbers for the 4 corners of the player
-        int topLeft = mapM.mapLayout[topRow][leftCol];
-        int topRight = mapM.mapLayout[topRow][rightCol];
-        int bottomLeft = mapM.mapLayout[bottomRow][leftCol];
-        int bottomRight = mapM.mapLayout[bottomRow][rightCol];
-
-        // Block movement if ANY corner touches WALL (6) or TREE (1)
-        if (topLeft == 6 || topLeft == 1) return true;
-        if (topRight == 6 || topRight == 1) return true;
-        if (bottomLeft == 6 || bottomLeft == 1) return true;
-        if (bottomRight == 6 || bottomRight == 1) return true;
-
-        return false;
     }
 
     private void drawTextWithShadow(Graphics2D g2, String text, int x, int y) {
@@ -258,11 +221,7 @@ public class GamePanel extends JPanel implements ActionListener {
         mapM.draw(g2);
 
         // Draw Player
-        g2.setColor(Color.RED);
-        g2.fillRect(playerX, playerY, playerSize, playerSize);
-        g2.setColor(Color.BLACK);
-        g2.setStroke(new BasicStroke(2));
-        g2.drawRect(playerX, playerY, playerSize, playerSize);
+        player.draw(g2);
 
         g2.setTransform(oldTransform);
 
