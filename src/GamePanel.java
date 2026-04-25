@@ -12,14 +12,8 @@ public class GamePanel extends JPanel implements ActionListener {
     final double LOGICAL_WIDTH = 101 * 40.0;
     final double LOGICAL_HEIGHT = 61 * 40.0;
 
-    int playerSize = 30;
-
-    int playerX = (50 * 40) + 5;
-    int playerY = (57 * 40) + 5;
-
-    int playerSpeed = 8;
-
-    boolean upPressed, downPressed, leftPressed, rightPressed;
+    // Player is now delegated to its own class (with built-in dash mechanic)
+    Player player;
 
     enum State { MAIN_MENU, SHOW_MAP, ZOOMING, PLAYING, FINISHED }
     State currentState = State.MAIN_MENU;
@@ -39,6 +33,15 @@ public class GamePanel extends JPanel implements ActionListener {
 
         mapM = new MapManager(MazeGenerator.generateMap());
 
+        // Spawn player inside the GATE (tile 3) at bottom-middle of the map
+        player = new Player(
+                (50 * 40) + 5,
+                (57 * 40) + 5,
+                Color.RED,
+                Color.BLACK,
+                "P1"
+        );
+
         try {
             bgImage = ImageIO.read(getClass().getResourceAsStream("/background.jpg"));
         } catch (Exception e) {
@@ -57,6 +60,9 @@ public class GamePanel extends JPanel implements ActionListener {
         im.put(KeyStroke.getKeyStroke(KeyEvent.VK_D, 0, false),      "rightOn");
         im.put(KeyStroke.getKeyStroke(KeyEvent.VK_RIGHT, 0, false),  "rightOn");
 
+        // DASH key
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, 0, false),  "dashOn");
+
         im.put(KeyStroke.getKeyStroke(KeyEvent.VK_W, 0, true),       "upOff");
         im.put(KeyStroke.getKeyStroke(KeyEvent.VK_UP, 0, true),      "upOff");
         im.put(KeyStroke.getKeyStroke(KeyEvent.VK_S, 0, true),       "downOff");
@@ -69,14 +75,15 @@ public class GamePanel extends JPanel implements ActionListener {
         im.put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0, false),  "enter");
         im.put(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0, false), "escape");
 
-        am.put("upOn",    new AbstractAction() { public void actionPerformed(ActionEvent e) { upPressed = true; } });
-        am.put("upOff",   new AbstractAction() { public void actionPerformed(ActionEvent e) { upPressed = false; } });
-        am.put("downOn",  new AbstractAction() { public void actionPerformed(ActionEvent e) { downPressed = true; } });
-        am.put("downOff", new AbstractAction() { public void actionPerformed(ActionEvent e) { downPressed = false; } });
-        am.put("leftOn",  new AbstractAction() { public void actionPerformed(ActionEvent e) { leftPressed = true; } });
-        am.put("leftOff", new AbstractAction() { public void actionPerformed(ActionEvent e) { leftPressed = false; } });
-        am.put("rightOn", new AbstractAction() { public void actionPerformed(ActionEvent e) { rightPressed = true; } });
-        am.put("rightOff",new AbstractAction() { public void actionPerformed(ActionEvent e) { rightPressed = false; } });
+        am.put("upOn",    new AbstractAction() { public void actionPerformed(ActionEvent e) { player.upPressed = true; } });
+        am.put("upOff",   new AbstractAction() { public void actionPerformed(ActionEvent e) { player.upPressed = false; } });
+        am.put("downOn",  new AbstractAction() { public void actionPerformed(ActionEvent e) { player.downPressed = true; } });
+        am.put("downOff", new AbstractAction() { public void actionPerformed(ActionEvent e) { player.downPressed = false; } });
+        am.put("leftOn",  new AbstractAction() { public void actionPerformed(ActionEvent e) { player.leftPressed = true; } });
+        am.put("leftOff", new AbstractAction() { public void actionPerformed(ActionEvent e) { player.leftPressed = false; } });
+        am.put("rightOn", new AbstractAction() { public void actionPerformed(ActionEvent e) { player.rightPressed = true; } });
+        am.put("rightOff",new AbstractAction() { public void actionPerformed(ActionEvent e) { player.rightPressed = false; } });
+        am.put("dashOn",  new AbstractAction() { public void actionPerformed(ActionEvent e) { player.dashPressed = true; } });
 
         am.put("enter", new AbstractAction() {
             public void actionPerformed(ActionEvent e) {
@@ -126,8 +133,8 @@ public class GamePanel extends JPanel implements ActionListener {
             currentScaleX = startScaleX + (TARGET_ZOOM - startScaleX) * progress;
             currentScaleY = startScaleY + (TARGET_ZOOM - startScaleY) * progress;
 
-            double targetCamX = (getWidth() / 2.0) - (playerX + playerSize / 2.0) * TARGET_ZOOM;
-            double targetCamY = (getHeight() / 2.0) - (playerY + playerSize / 2.0) * TARGET_ZOOM;
+            double targetCamX = (getWidth() / 2.0) - (player.x + player.size / 2.0) * TARGET_ZOOM;
+            double targetCamY = (getHeight() / 2.0) - (player.y + player.size / 2.0) * TARGET_ZOOM;
 
             camX = targetCamX * progress;
             camY = targetCamY * progress;
@@ -137,31 +144,18 @@ public class GamePanel extends JPanel implements ActionListener {
             }
         }
         else if (currentState == State.PLAYING) {
-            if (upPressed) {
-                playerY -= playerSpeed;
-                if (isColliding(playerX, playerY)) playerY += playerSpeed;
-            }
-            if (downPressed) {
-                playerY += playerSpeed;
-                if (isColliding(playerX, playerY)) playerY -= playerSpeed;
-            }
-            if (leftPressed) {
-                playerX -= playerSpeed;
-                if (isColliding(playerX, playerY)) playerX += playerSpeed;
-            }
-            if (rightPressed) {
-                playerX += playerSpeed;
-                if (isColliding(playerX, playerY)) playerX -= playerSpeed;
-            }
+            // Delegate movement, dash, and collision to the Player class
+            player.update(mapM.mapLayout);
 
+            // Camera follows player
             currentScaleX = TARGET_ZOOM;
             currentScaleY = TARGET_ZOOM;
-            camX = (getWidth() / 2.0) - (playerX + playerSize / 2.0) * TARGET_ZOOM;
-            camY = (getHeight() / 2.0) - (playerY + playerSize / 2.0) * TARGET_ZOOM;
+            camX = (getWidth() / 2.0) - (player.x + player.size / 2.0) * TARGET_ZOOM;
+            camY = (getHeight() / 2.0) - (player.y + player.size / 2.0) * TARGET_ZOOM;
 
             // Win condition — player overlaps any PhySci tile (type 2)
-            int centerCol = (playerX + playerSize / 2) / 40;
-            int centerRow = (playerY + playerSize / 2) / 40;
+            int centerCol = player.getCenterCol();
+            int centerRow = player.getCenterRow();
             if (centerRow >= 0 && centerRow < mapM.mapLayout.length &&
                     centerCol >= 0 && centerCol < mapM.mapLayout[0].length) {
                 if (mapM.mapLayout[centerRow][centerCol] == 2) {
@@ -169,31 +163,6 @@ public class GamePanel extends JPanel implements ActionListener {
                 }
             }
         }
-    }
-
-    private boolean isColliding(int x, int y) {
-        int leftCol   = x / 40;
-        int rightCol  = (x + playerSize - 1) / 40;
-        int topRow    = y / 40;
-        int bottomRow = (y + playerSize - 1) / 40;
-
-        if (leftCol < 0 || rightCol >= mapM.mapLayout[0].length ||
-                topRow < 0 || bottomRow >= mapM.mapLayout.length) {
-            return true;
-        }
-
-        int topLeft     = mapM.mapLayout[topRow][leftCol];
-        int topRight    = mapM.mapLayout[topRow][rightCol];
-        int bottomLeft  = mapM.mapLayout[bottomRow][leftCol];
-        int bottomRight = mapM.mapLayout[bottomRow][rightCol];
-
-        // Only Tree(1) and Wall(6) block movement — all landmarks are walkable
-        if (topLeft == 1     || topLeft == 6)     return true;
-        if (topRight == 1    || topRight == 6)    return true;
-        if (bottomLeft == 1  || bottomLeft == 6)  return true;
-        if (bottomRight == 1 || bottomRight == 6) return true;
-
-        return false;
     }
 
     private void drawTextWithShadow(Graphics2D g2, String text, int x, int y) {
@@ -268,11 +237,8 @@ public class GamePanel extends JPanel implements ActionListener {
 
         mapM.draw(g2);
 
-        g2.setColor(Color.RED);
-        g2.fillRect(playerX, playerY, playerSize, playerSize);
-        g2.setColor(Color.BLACK);
-        g2.setStroke(new BasicStroke(2));
-        g2.drawRect(playerX, playerY, playerSize, playerSize);
+        // Player draws itself + its dash bar UI
+        player.draw(g2);
 
         g2.setTransform(oldTransform);
 
