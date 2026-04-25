@@ -9,17 +9,15 @@ public class GamePanel extends JPanel implements ActionListener {
     MapManager mapM;
     Timer timer;
 
-    // Maze size
     final double LOGICAL_WIDTH = 101 * 40.0;
     final double LOGICAL_HEIGHT = 61 * 40.0;
 
     int playerSize = 30;
 
-    // Spawn in the middle of the GATE
     int playerX = (50 * 40) + 5;
-    int playerY = (58 * 40) + 5;
+    int playerY = (57 * 40) + 5;
 
-    int playerSpeed = 5;
+    int playerSpeed = 8;
 
     boolean upPressed, downPressed, leftPressed, rightPressed;
 
@@ -47,36 +45,54 @@ public class GamePanel extends JPanel implements ActionListener {
             System.out.println("Notice: background.jpg not found in 'res' folder.");
         }
 
-        //Movement
-        this.addKeyListener(new KeyAdapter() {
-            public void keyPressed(KeyEvent e) {
-                int code = e.getKeyCode();
+        InputMap im = getInputMap(WHEN_IN_FOCUSED_WINDOW);
+        ActionMap am = getActionMap();
 
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_W, 0, false),      "upOn");
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_UP, 0, false),     "upOn");
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_S, 0, false),      "downOn");
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_DOWN, 0, false),   "downOn");
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_A, 0, false),      "leftOn");
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_LEFT, 0, false),   "leftOn");
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_D, 0, false),      "rightOn");
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_RIGHT, 0, false),  "rightOn");
+
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_W, 0, true),       "upOff");
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_UP, 0, true),      "upOff");
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_S, 0, true),       "downOff");
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_DOWN, 0, true),    "downOff");
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_A, 0, true),       "leftOff");
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_LEFT, 0, true),    "leftOff");
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_D, 0, true),       "rightOff");
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_RIGHT, 0, true),   "rightOff");
+
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0, false),  "enter");
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0, false), "escape");
+
+        am.put("upOn",    new AbstractAction() { public void actionPerformed(ActionEvent e) { upPressed = true; } });
+        am.put("upOff",   new AbstractAction() { public void actionPerformed(ActionEvent e) { upPressed = false; } });
+        am.put("downOn",  new AbstractAction() { public void actionPerformed(ActionEvent e) { downPressed = true; } });
+        am.put("downOff", new AbstractAction() { public void actionPerformed(ActionEvent e) { downPressed = false; } });
+        am.put("leftOn",  new AbstractAction() { public void actionPerformed(ActionEvent e) { leftPressed = true; } });
+        am.put("leftOff", new AbstractAction() { public void actionPerformed(ActionEvent e) { leftPressed = false; } });
+        am.put("rightOn", new AbstractAction() { public void actionPerformed(ActionEvent e) { rightPressed = true; } });
+        am.put("rightOff",new AbstractAction() { public void actionPerformed(ActionEvent e) { rightPressed = false; } });
+
+        am.put("enter", new AbstractAction() {
+            public void actionPerformed(ActionEvent e) {
                 if (currentState == State.MAIN_MENU) {
-                    if (code == KeyEvent.VK_ENTER) {
-                        currentState = State.SHOW_MAP;
-                        frameCount = 0;
-                    }
-                    if (code == KeyEvent.VK_ESCAPE) System.exit(0);
-                    return;
+                    currentState = State.SHOW_MAP;
+                    frameCount = 0;
                 }
-
-                if(code == KeyEvent.VK_W || code == KeyEvent.VK_UP) upPressed = true;
-                if(code == KeyEvent.VK_S || code == KeyEvent.VK_DOWN) downPressed = true;
-                if(code == KeyEvent.VK_A || code == KeyEvent.VK_LEFT) leftPressed = true;
-                if(code == KeyEvent.VK_D || code == KeyEvent.VK_RIGHT) rightPressed = true;
-                if(code == KeyEvent.VK_ESCAPE) System.exit(0);
             }
-            public void keyReleased(KeyEvent e) {
-                int code = e.getKeyCode();
-                if(code == KeyEvent.VK_W || code == KeyEvent.VK_UP) upPressed = false;
-                if(code == KeyEvent.VK_S || code == KeyEvent.VK_DOWN) downPressed = false;
-                if(code == KeyEvent.VK_A || code == KeyEvent.VK_LEFT) leftPressed = false;
-                if(code == KeyEvent.VK_D || code == KeyEvent.VK_RIGHT) rightPressed = false;
+        });
+        am.put("escape", new AbstractAction() {
+            public void actionPerformed(ActionEvent e) {
+                System.exit(0);
             }
         });
 
-        timer = new Timer(16, this); // ~60 FPS
+        timer = new Timer(16, this);
         timer.start();
     }
 
@@ -86,7 +102,6 @@ public class GamePanel extends JPanel implements ActionListener {
         repaint();
     }
 
-    //User View
     private void update() {
         if (currentState == State.MAIN_MENU) {
             frameCount++;
@@ -144,12 +159,11 @@ public class GamePanel extends JPanel implements ActionListener {
             camX = (getWidth() / 2.0) - (playerX + playerSize / 2.0) * TARGET_ZOOM;
             camY = (getHeight() / 2.0) - (playerY + playerSize / 2.0) * TARGET_ZOOM;
 
+            // Win condition — player overlaps any PhySci tile (type 2)
             int centerCol = (playerX + playerSize / 2) / 40;
             int centerRow = (playerY + playerSize / 2) / 40;
-
             if (centerRow >= 0 && centerRow < mapM.mapLayout.length &&
                     centerCol >= 0 && centerCol < mapM.mapLayout[0].length) {
-                // Check if reached Physci (tile 2)
                 if (mapM.mapLayout[centerRow][centerCol] == 2) {
                     currentState = State.FINISHED;
                 }
@@ -157,11 +171,10 @@ public class GamePanel extends JPanel implements ActionListener {
         }
     }
 
-    //Not allow passing through walls
     private boolean isColliding(int x, int y) {
-        int leftCol = x / 40;
-        int rightCol = (x + playerSize - 1) / 40;
-        int topRow = y / 40;
+        int leftCol   = x / 40;
+        int rightCol  = (x + playerSize - 1) / 40;
+        int topRow    = y / 40;
         int bottomRow = (y + playerSize - 1) / 40;
 
         if (leftCol < 0 || rightCol >= mapM.mapLayout[0].length ||
@@ -169,17 +182,16 @@ public class GamePanel extends JPanel implements ActionListener {
             return true;
         }
 
-        // Get the tile numbers for the 4 corners of the player
-        int topLeft = mapM.mapLayout[topRow][leftCol];
-        int topRight = mapM.mapLayout[topRow][rightCol];
-        int bottomLeft = mapM.mapLayout[bottomRow][leftCol];
+        int topLeft     = mapM.mapLayout[topRow][leftCol];
+        int topRight    = mapM.mapLayout[topRow][rightCol];
+        int bottomLeft  = mapM.mapLayout[bottomRow][leftCol];
         int bottomRight = mapM.mapLayout[bottomRow][rightCol];
 
-        // Block movement if ANY corner touches WALL (6) or TREE (1)
-        if (topLeft == 6 || topLeft == 1) return true;
-        if (topRight == 6 || topRight == 1) return true;
-        if (bottomLeft == 6 || bottomLeft == 1) return true;
-        if (bottomRight == 6 || bottomRight == 1) return true;
+        // Only Tree(1) and Wall(6) block movement — all landmarks are walkable
+        if (topLeft == 1     || topLeft == 6)     return true;
+        if (topRight == 1    || topRight == 6)    return true;
+        if (bottomLeft == 1  || bottomLeft == 6)  return true;
+        if (bottomRight == 1 || bottomRight == 6) return true;
 
         return false;
     }
@@ -254,10 +266,8 @@ public class GamePanel extends JPanel implements ActionListener {
 
         g2.setTransform(cameraTransform);
 
-        // Draw Maze
         mapM.draw(g2);
 
-        // Draw Player
         g2.setColor(Color.RED);
         g2.fillRect(playerX, playerY, playerSize, playerSize);
         g2.setColor(Color.BLACK);
@@ -267,15 +277,27 @@ public class GamePanel extends JPanel implements ActionListener {
         g2.setTransform(oldTransform);
 
         if (currentState == State.FINISHED) {
+            // Dark overlay
             g2.setColor(new Color(0, 0, 0, 180));
             g2.fillRect(0, 0, getWidth(), getHeight());
 
+            FontMetrics fm;
+
+            // "YOU REACHED THE GOAL!"
             g2.setColor(Color.YELLOW);
             g2.setFont(new Font("Arial", Font.BOLD, 65));
-            FontMetrics fm = g2.getFontMetrics();
-            String text = "Final Grade:1.0";
-            int txtX = (getWidth() - fm.stringWidth(text)) / 2;
-            g2.drawString(text, txtX, getHeight() / 2);
+            fm = g2.getFontMetrics();
+            String line1 = "YOU REACHED THE GOAL!";
+            int x1 = (getWidth() - fm.stringWidth(line1)) / 2;
+            g2.drawString(line1, x1, getHeight() / 2 - 40);
+
+            // "Final Grade: 1.0"
+            g2.setColor(Color.WHITE);
+            g2.setFont(new Font("Arial", Font.BOLD, 45));
+            fm = g2.getFontMetrics();
+            String line2 = "Final Grade: 1.0";
+            int x2 = (getWidth() - fm.stringWidth(line2)) / 2;
+            g2.drawString(line2, x2, getHeight() / 2 + 30);
         }
     }
 }

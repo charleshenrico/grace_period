@@ -2,7 +2,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-//Maze
 public class MazeGenerator {
     public static int[][] generateMap() {
         int roomsX = 25;
@@ -13,48 +12,82 @@ public class MazeGenerator {
 
         int[][] map = new int[actualRows][actualCols];
 
-        // Maze Maker
+        // Fill everything with WALLS (6) initially
         for (int r = 0; r < actualRows; r++) {
             for (int c = 0; c < actualCols; c++) {
-                map[r][c] = 6; // 6 = Wall
+                map[r][c] = 6;
             }
         }
 
         boolean[][] visited = new boolean[roomsY][roomsX];
         carve(0, 0, visited, map, roomsX, roomsY);
 
-        // Edges as Tree
-        // Top and bottom edges
+        // TREE (1) border edges
         for (int c = 0; c < actualCols; c++) {
             map[0][c] = 1;
             map[actualRows - 1][c] = 1;
         }
-        // Left and right edges
         for (int r = 0; r < actualRows; r++) {
             map[r][0] = 1;
             map[r][actualCols - 1] = 1;
         }
 
-        // Finish Line
-        int midRoomX = roomsX / 2;
-        int topR = 1 + 0 * 4;
-        int midC = 1 + midRoomX * 4;
+        int midC = actualCols / 2 - 4; // center the 9x9 horizontally
 
-        for (int r = topR; r < topR + 3; r++) {
-            for (int c = midC; c < midC + 3; c++) {
-                map[r][c] = 2;
-            }
-        }
+        // PHYSCI (Tile 2) — 9x9 at TOP MIDDLE (ending)
+        int physciStartR = 1;
+        int physciStartC = midC;
+        placeLandmark(map, physciStartR, physciStartC, 2, actualRows, actualCols);
 
-        // Start Position
-        int botR = 1 + (roomsY - 1) * 4;
-        for (int r = botR; r < botR + 3; r++) {
-            for (int c = midC; c < midC + 3; c++) {
-                map[r][c] = 3;
-            }
-        }
+        // GATE (Tile 3) — 9x9 at BOTTOM MIDDLE (starting)
+        int gateStartR = actualRows - 11; // 9 tiles + 1 border from bottom edge
+        int gateStartC = midC;
+        placeLandmark(map, gateStartR, gateStartC, 3, actualRows, actualCols);
+
+        // TOWER (Tile 7) — TOP-LEFT quadrant
+        int towerStartR = Math.max(2, actualRows / 4 - 4);
+        int towerStartC = Math.max(2, actualCols / 4 - 4);
+        placeLandmark(map, towerStartR, towerStartC, 7, actualRows, actualCols);
+
+        // OBLE (Tile 8) — BOTTOM-RIGHT quadrant
+        int obleStartR = Math.min(actualRows - 12, Math.max(2, (actualRows * 3) / 4 - 4));
+        int obleStartC = Math.min(actualCols - 12, Math.max(2, (actualCols * 3) / 4 - 4));
+        placeLandmark(map, obleStartR, obleStartC, 8, actualRows, actualCols);
+
+        // CARILLON (Tile 9) — TOP-RIGHT quadrant
+        int carillonStartR = Math.max(2, actualRows / 4 - 4);
+        int carillonStartC = Math.min(actualCols - 12, Math.max(2, (actualCols * 3) / 4 - 4));
+        placeLandmark(map, carillonStartR, carillonStartC, 9, actualRows, actualCols);
+
+        // LIBRARY (Tile 10) — BOTTOM-LEFT quadrant
+        int libraryStartR = Math.min(actualRows - 12, Math.max(2, (actualRows * 3) / 4 - 4));
+        int libraryStartC = Math.max(2, actualCols / 4 - 4);
+        placeLandmark(map, libraryStartR, libraryStartC, 10, actualRows, actualCols);
 
         return map;
+    }
+
+    // Carves a walkable ring around a 9x9 block, then stamps the landmark tile
+    private static void placeLandmark(int[][] map, int startR, int startC, int tileType, int rows, int cols) {
+        // Open walkable ring (1-tile border) around the 9x9
+        for (int r = startR - 1; r < startR + 11; r++) {
+            for (int c = startC - 1; c < startC + 11; c++) {
+                if (r >= 1 && c >= 1 && r < rows - 1 && c < cols - 1) {
+                    int cur = map[r][c];
+                    if (cur != 2 && cur != 3 && cur != 7 && cur != 8 && cur != 9 && cur != 10) {
+                        map[r][c] = 0;
+                    }
+                }
+            }
+        }
+        // Stamp the 9x9 landmark tiles
+        for (int r = startR; r < startR + 9; r++) {
+            for (int c = startC; c < startC + 9; c++) {
+                if (r >= 1 && c >= 1 && r < rows - 1 && c < cols - 1) {
+                    map[r][c] = tileType;
+                }
+            }
+        }
     }
 
     private static void carve(int x, int y, boolean[][] visited, int[][] map, int roomsX, int roomsY) {
@@ -63,14 +96,12 @@ public class MazeGenerator {
         int startR = 1 + y * 4;
         int startC = 1 + x * 4;
 
-        // 3x3 paths (0 = Dirt Path)
         for (int r = startR; r < startR + 3; r++) {
             for (int c = startC; c < startC + 3; c++) {
                 map[r][c] = 0;
             }
         }
 
-        //Make maze variations by shuffling
         int[][] directions = {{0, -1}, {0, 1}, {-1, 0}, {1, 0}};
         List<int[]> dirs = new ArrayList<>();
         for (int[] d : directions) dirs.add(d);
@@ -81,13 +112,13 @@ public class MazeGenerator {
             int ny = y + dir[1];
 
             if (nx >= 0 && nx < roomsX && ny >= 0 && ny < roomsY && !visited[ny][nx]) {
-                if (dir[0] == 1) { // Right
+                if (dir[0] == 1) {
                     map[startR][startC + 3] = 0; map[startR + 1][startC + 3] = 0; map[startR + 2][startC + 3] = 0;
-                } else if (dir[0] == -1) { // Left
+                } else if (dir[0] == -1) {
                     map[startR][startC - 1] = 0; map[startR + 1][startC - 1] = 0; map[startR + 2][startC - 1] = 0;
-                } else if (dir[1] == 1) { // Down
+                } else if (dir[1] == 1) {
                     map[startR + 3][startC] = 0; map[startR + 3][startC + 1] = 0; map[startR + 3][startC + 2] = 0;
-                } else if (dir[1] == -1) { // Up
+                } else if (dir[1] == -1) {
                     map[startR - 1][startC] = 0; map[startR - 1][startC + 1] = 0; map[startR - 1][startC + 2] = 0;
                 }
                 carve(nx, ny, visited, map, roomsX, roomsY);

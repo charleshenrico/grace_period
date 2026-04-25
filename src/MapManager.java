@@ -1,5 +1,6 @@
 import javax.imageio.ImageIO;
 import java.awt.Color;
+import java.awt.Font;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
 
@@ -8,72 +9,54 @@ public class MapManager {
     public final int tileSize = 40;
     public int[][] mapLayout;
 
-    // Path tile images (1-9)
-    // path1 = wall on TOP + LEFT
-    // path2 = wall on TOP
-    // path3 = wall on TOP + RIGHT
-    // path4 = wall on LEFT
-    // path5 = no walls (open center)
-    // path6 = wall on RIGHT
-    // path7 = wall on LEFT + BOTTOM
-    // path8 = wall on BOTTOM
-    // path9 = wall on RIGHT + BOTTOM
     private BufferedImage[] pathImages = new BufferedImage[10];
 
     private BufferedImage treeImage;
     private BufferedImage wallImage;
 
-    // Physci: 3x3 composite (physci1..physci9)
-    // physci1 | physci2 | physci3
-    // physci4 | physci5 | physci6
-    // physci7 | physci8 | physci9
-    private BufferedImage[] physciPieces = new BufferedImage[10];
-
-    // Gate: 3x3 composite (gate1..gate8, open center)
-    // gate1 | gate2 | gate3
-    // gate4 | open  | gate5
-    // gate6 | gate7 | gate8
-    private BufferedImage[] gatePieces = new BufferedImage[10];
+    private BufferedImage physciImage;
+    private BufferedImage gateImage;
+    private BufferedImage towerImage;
+    private BufferedImage obleImage;
+    private BufferedImage carillonImage;
+    private BufferedImage libraryImage;
 
     public MapManager(int[][] layout) {
         this.mapLayout = layout;
         loadImages();
     }
 
-    //Load Images from res folder
     private void loadImages() {
         try {
             for (int i = 1; i <= 9; i++) {
                 pathImages[i] = ImageIO.read(getClass().getResourceAsStream("/path" + i + ".png"));
             }
-            treeImage = ImageIO.read(getClass().getResourceAsStream("/tree.png"));
-            wallImage = ImageIO.read(getClass().getResourceAsStream("/wall.png"));
-            for (int i = 1; i <= 9; i++) {
-                physciPieces[i] = ImageIO.read(getClass().getResourceAsStream("/physci" + i + ".png"));
-            }
-            for (int i = 1; i <= 8; i++) {
-                gatePieces[i] = ImageIO.read(getClass().getResourceAsStream("/gate" + i + ".png"));
-            }
+            treeImage     = ImageIO.read(getClass().getResourceAsStream("/tree.png"));
+            wallImage     = ImageIO.read(getClass().getResourceAsStream("/wall.png"));
+            physciImage   = ImageIO.read(getClass().getResourceAsStream("/PhySci.png"));
+            gateImage     = ImageIO.read(getClass().getResourceAsStream("/Gate.png"));
+            towerImage    = ImageIO.read(getClass().getResourceAsStream("/Tower.png"));
+            obleImage     = ImageIO.read(getClass().getResourceAsStream("/Oble.png"));
+            carillonImage = ImageIO.read(getClass().getResourceAsStream("/Carilion.png"));
+            libraryImage  = ImageIO.read(getClass().getResourceAsStream("/Library.png"));
         } catch (Exception e) {
             System.out.println("Notice: Some images missing in 'res' folder. Using colors instead.");
         }
     }
 
-    // Make sure user does not go through wall
+    // Only trees and walls are solid now — landmarks are walkable
     private boolean isWall(int row, int col) {
         if (row < 0 || col < 0 || row >= mapLayout.length || col >= mapLayout[0].length) return true;
         int t = mapLayout[row][col];
         return t == 1 || t == 6;
     }
 
-    // Path Design(path1-9.png)
     private int getPathIndex(int row, int col) {
         boolean top    = isWall(row - 1, col);
         boolean bottom = isWall(row + 1, col);
         boolean left   = isWall(row, col - 1);
         boolean right  = isWall(row, col + 1);
 
-        // Priority: corners first, then edges, then open
         if (top && left)     return 1;
         if (top && right)    return 3;
         if (bottom && left)  return 7;
@@ -85,15 +68,14 @@ public class MapManager {
         return 5;
     }
 
-    // Finds the top-left corner of the 3x3 block of a given tileType containing (row, col)
-    private int[] getBlockOrigin(int row, int col, int tileType) {
-        for (int dr = 0; dr <= 2; dr++) {
-            for (int dc = 0; dc <= 2; dc++) {
+    private int[] getBlockOrigin(int row, int col, int type) {
+        for (int dr = 0; dr < 9; dr++) {
+            for (int dc = 0; dc < 9; dc++) {
                 int checkR = row - dr;
                 int checkC = col - dc;
-                if (checkR >= 0 && checkC >= 0 && mapLayout[checkR][checkC] == tileType) {
-                    boolean topEdge  = (checkR == 0 || mapLayout[checkR - 1][checkC] != tileType);
-                    boolean leftEdge = (checkC == 0 || mapLayout[checkR][checkC - 1] != tileType);
+                if (checkR >= 0 && checkC >= 0 && mapLayout[checkR][checkC] == type) {
+                    boolean topEdge  = (checkR == 0 || mapLayout[checkR - 1][checkC] != type);
+                    boolean leftEdge = (checkC == 0 || mapLayout[checkR][checkC - 1] != type);
                     if (topEdge && leftEdge) return new int[]{checkR, checkC};
                 }
             }
@@ -101,12 +83,35 @@ public class MapManager {
         return new int[]{row, col};
     }
 
-    //Rendering: loops through your entire 2D array
-    //Tile 0: Calls the Autotiling logic to draw dirt.
-    //Tile 1/6: Draws basic trees or walls.
-    //Tile 2 (Physci): Uses the "Puzzle Finder" to draw the correct piece of the 3x3 Physci building.
-    //Tile 3 (Gate): Similar to Physci, but it leaves the center empty (null) so the player can walk through the middle of the gate.
+    private void drawLandmark(Graphics2D g2, int row, int col, int tileType,
+                              BufferedImage image, Color fallback, String label,
+                              boolean[] drawn) {
+        int[] origin = getBlockOrigin(row, col, tileType);
+        if (row == origin[0] && col == origin[1] && !drawn[0]) {
+            int x    = col * tileSize;
+            int y    = row * tileSize;
+            int size = tileSize * 9;
+            if (image != null) {
+                g2.drawImage(image, x, y, size, size, null);
+            } else {
+                g2.setColor(fallback);
+                g2.fillRect(x, y, size, size);
+                g2.setColor(Color.WHITE);
+                g2.setFont(new Font("Arial", Font.BOLD, 22));
+                g2.drawString(label, x + 10, y + size / 2);
+            }
+            drawn[0] = true;
+        }
+    }
+
     public void draw(Graphics2D g2) {
+        boolean[] physciDrawn    = {false};
+        boolean[] gateDrawn      = {false};
+        boolean[] towerDrawn     = {false};
+        boolean[] obleDrawn      = {false};
+        boolean[] carillonDrawn  = {false};
+        boolean[] libraryDrawn   = {false};
+
         for (int row = 0; row < mapLayout.length; row++) {
             for (int col = 0; col < mapLayout[row].length; col++) {
 
@@ -114,69 +119,8 @@ public class MapManager {
                 int x = col * tileSize;
                 int y = row * tileSize;
 
-                if (tileType == 0) {
-                    // Smart path: pick tile based on adjacent walls
-                    int idx = getPathIndex(row, col);
-                    if (pathImages[idx] != null) {
-                        g2.drawImage(pathImages[idx], x, y, tileSize, tileSize, null);
-                    } else {
-                        g2.setColor(new Color(210, 180, 140));
-                        g2.fillRect(x, y, tileSize, tileSize);
-                    }
-
-                } else if (tileType == 1) {
-                    // Tree (border edge)
-                    if (treeImage != null) {
-                        g2.drawImage(treeImage, x, y, tileSize, tileSize, null);
-                    } else {
-                        g2.setColor(new Color(34, 139, 34));
-                        g2.fillRect(x, y, tileSize, tileSize);
-                    }
-
-                } else if (tileType == 6) {
-                    // Wall
-                    if (wallImage != null) {
-                        g2.drawImage(wallImage, x, y, tileSize, tileSize, null);
-                    } else {
-                        g2.setColor(new Color(100, 100, 100));
-                        g2.fillRect(x, y, tileSize, tileSize);
-                    }
-
-                } else if (tileType == 2) {
-                    // Physci (ending) — 3x3 composite
-                    int[] origin = getBlockOrigin(row, col, 2);
-                    int localRow = row - origin[0];
-                    int localCol = col - origin[1];
-                    int pieceIndex = localRow * 3 + localCol + 1;
-
-                    if (pieceIndex >= 1 && pieceIndex <= 9 && physciPieces[pieceIndex] != null) {
-                        g2.drawImage(physciPieces[pieceIndex], x, y, tileSize, tileSize, null);
-                    } else {
-                        g2.setColor(new Color(135, 206, 250));
-                        g2.fillRect(x, y, tileSize, tileSize);
-                    }
-
-                } else if (tileType == 3) {
-                    // Gate (starting) — 3x3 composite, open center
-                    int[] origin = getBlockOrigin(row, col, 3);
-                    int localRow = row - origin[0];
-                    int localCol = col - origin[1];
-
-                    BufferedImage gatePiece = null;
-                    if (localRow == 0) {
-                        gatePiece = gatePieces[localCol + 1]; // 1, 2, 3
-                    } else if (localRow == 1) {
-                        if      (localCol == 0) gatePiece = gatePieces[4];
-                        else if (localCol == 1) gatePiece = null; // open center
-                        else if (localCol == 2) gatePiece = gatePieces[5];
-                    } else if (localRow == 2) {
-                        gatePiece = gatePieces[localCol + 6]; // 6, 7, 8
-                    }
-
-                    if (gatePiece != null) {
-                        g2.drawImage(gatePiece, x, y, tileSize, tileSize, null);
-                    } else {
-                        // Open center of gate — draw path underneath
+                switch (tileType) {
+                    case 0:
                         int idx = getPathIndex(row, col);
                         if (pathImages[idx] != null) {
                             g2.drawImage(pathImages[idx], x, y, tileSize, tileSize, null);
@@ -184,7 +128,55 @@ public class MapManager {
                             g2.setColor(new Color(210, 180, 140));
                             g2.fillRect(x, y, tileSize, tileSize);
                         }
-                    }
+                        break;
+
+                    case 1:
+                        if (treeImage != null) {
+                            g2.drawImage(treeImage, x, y, tileSize, tileSize, null);
+                        } else {
+                            g2.setColor(new Color(34, 139, 34));
+                            g2.fillRect(x, y, tileSize, tileSize);
+                        }
+                        break;
+
+                    case 6:
+                        if (wallImage != null) {
+                            g2.drawImage(wallImage, x, y, tileSize, tileSize, null);
+                        } else {
+                            g2.setColor(new Color(100, 100, 100));
+                            g2.fillRect(x, y, tileSize, tileSize);
+                        }
+                        break;
+
+                    case 2:
+                        drawLandmark(g2, row, col, 2, physciImage,
+                                new Color(70, 130, 200), "PHYSCI", physciDrawn);
+                        break;
+
+                    case 3:
+                        drawLandmark(g2, row, col, 3, gateImage,
+                                new Color(128, 0, 0), "GATE", gateDrawn);
+                        break;
+
+                    case 7:
+                        drawLandmark(g2, row, col, 7, towerImage,
+                                new Color(70, 130, 180), "TOWER", towerDrawn);
+                        break;
+
+                    case 8:
+                        drawLandmark(g2, row, col, 8, obleImage,
+                                new Color(139, 90, 43), "OBLE", obleDrawn);
+                        break;
+
+                    case 9:
+                        drawLandmark(g2, row, col, 9, carillonImage,
+                                new Color(60, 120, 60), "CARILLON", carillonDrawn);
+                        break;
+
+                    case 10:
+                        drawLandmark(g2, row, col, 10, libraryImage,
+                                new Color(80, 80, 160), "LIBRARY", libraryDrawn);
+                        break;
                 }
             }
         }
