@@ -7,6 +7,7 @@ import java.awt.image.BufferedImage;
 
 public class GamePanel extends JPanel implements ActionListener {
     MapManager mapM;
+    AbilityManager abilityM;
     Timer timer;
 
     final double LOGICAL_WIDTH = 101 * 40.0;
@@ -41,6 +42,9 @@ public class GamePanel extends JPanel implements ActionListener {
                 Color.BLACK,
                 "P1"
         );
+
+        // Spawn ability pickups on random walkable path tiles
+        abilityM = new AbilityManager(mapM.mapLayout);
 
         try {
             bgImage = ImageIO.read(getClass().getResourceAsStream("/background.jpg"));
@@ -147,6 +151,9 @@ public class GamePanel extends JPanel implements ActionListener {
             // Delegate movement, dash, and collision to the Player class
             player.update(mapM.mapLayout);
 
+            // Tick ability pickups (handles collision-with-player + respawn timers)
+            abilityM.update(player);
+
             // Camera follows player
             currentScaleX = TARGET_ZOOM;
             currentScaleY = TARGET_ZOOM;
@@ -236,6 +243,9 @@ public class GamePanel extends JPanel implements ActionListener {
         g2.setTransform(cameraTransform);
 
         mapM.draw(g2);
+
+        // Ability pickups in the world (under the player)
+        abilityM.draw(g2);
 
         // Player draws itself + its dash bar UI
         player.draw(g2);
