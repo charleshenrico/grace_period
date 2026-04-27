@@ -13,10 +13,13 @@ public class GamePanel extends JPanel implements ActionListener {
     final double LOGICAL_WIDTH = 101 * 40.0;
     final double LOGICAL_HEIGHT = 61 * 40.0;
 
-    // Player is now delegated to its own class (with built-in dash mechanic)
     Player player;
 
-    enum State { MAIN_MENU, SHOW_MAP, ZOOMING, PLAYING, FINISHED }
+    // Real-time countdown — 120 seconds
+    long timeMillisLeft = 60_000;
+    long lastUpdateTime = -1;
+
+    enum State { MAIN_MENU, SHOW_MAP, ZOOMING, PLAYING, FINISHED, GAMEOVER }
     State currentState = State.MAIN_MENU;
 
     int frameCount = 0;
@@ -34,7 +37,6 @@ public class GamePanel extends JPanel implements ActionListener {
 
         mapM = new MapManager(MazeGenerator.generateMap());
 
-        // Spawn player inside the GATE (tile 3) at bottom-middle of the map
         player = new Player(
                 (50 * 40) + 5,
                 (57 * 40) + 5,
@@ -43,7 +45,6 @@ public class GamePanel extends JPanel implements ActionListener {
                 "P1"
         );
 
-        // Spawn ability pickups on random walkable path tiles
         abilityM = new AbilityManager(mapM.mapLayout);
 
         try {
@@ -64,7 +65,6 @@ public class GamePanel extends JPanel implements ActionListener {
         im.put(KeyStroke.getKeyStroke(KeyEvent.VK_D, 0, false),      "rightOn");
         im.put(KeyStroke.getKeyStroke(KeyEvent.VK_RIGHT, 0, false),  "rightOn");
 
-        // DASH key
         im.put(KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, 0, false),  "dashOn");
 
         im.put(KeyStroke.getKeyStroke(KeyEvent.VK_W, 0, true),       "upOff");
@@ -145,13 +145,27 @@ public class GamePanel extends JPanel implements ActionListener {
 
             if (frameCount >= zoomDuration) {
                 currentState = State.PLAYING;
+                lastUpdateTime = System.currentTimeMillis(); // start real clock here
             }
         }
         else if (currentState == State.PLAYING) {
-            // Delegate movement, dash, and collision to the Player class
+
+            // Real-time delta countdown
+            long now = System.currentTimeMillis();
+            long delta = now - lastUpdateTime;
+            lastUpdateTime = now;
+            timeMillisLeft -= delta;
+
+            if (timeMillisLeft <= 0) {
+                timeMillisLeft = 0;
+                currentState = State.GAMEOVER;
+                return;
+            }
+
+            // Delegate movement, dash, and collision to Player
             player.update(mapM.mapLayout);
 
-            // Tick ability pickups (handles collision-with-player + respawn timers)
+            // Tick ability pickups
             abilityM.update(player);
 
             // Camera follows player
@@ -160,7 +174,7 @@ public class GamePanel extends JPanel implements ActionListener {
             camX = (getWidth() / 2.0) - (player.x + player.size / 2.0) * TARGET_ZOOM;
             camY = (getHeight() / 2.0) - (player.y + player.size / 2.0) * TARGET_ZOOM;
 
-            // Win condition — player overlaps any PhySci tile (type 2)
+            // Win condition
             int centerCol = player.getCenterCol();
             int centerRow = player.getCenterRow();
             if (centerRow >= 0 && centerRow < mapM.mapLayout.length &&
@@ -229,6 +243,7 @@ public class GamePanel extends JPanel implements ActionListener {
             return;
         }
 
+        // ── World transform (map + player) ──
         AffineTransform oldTransform = g2.getTransform();
         AffineTransform cameraTransform = new AffineTransform();
 
@@ -244,36 +259,91 @@ public class GamePanel extends JPanel implements ActionListener {
 
         mapM.draw(g2);
 
-        // Ability pickups in the world (under the player)
+        // Ability pickups drawn under player
         abilityM.draw(g2);
 
-        // Player draws itself + its dash bar UI
+        // Player draws itself + dash bar
         player.draw(g2);
 
+        // ── Restore screen-space transform BEFORE drawing HUD ──
         g2.setTransform(oldTransform);
 
+        // ── HUD: countdown timer (only during PLAYING) ──
+        if (currentState == State.PLAYING) {
+            long secondsLeft = timeMillisLeft / 1000;
+            long minutes = secondsLeft / 60;
+            long seconds  = secondsLeft % 60;
+            String timeStr = String.format("%d:%02d", minutes, seconds);
+            boolean urgent = secondsLeft < 30;
+
+            g2.setFont(new Font("Arial", Font.BOLD, 48));
+            FontMetrics fm = g2.getFontMetrics();
+            int tw = fm.stringWidth(timeStr);
+            int th = fm.getHeight();
+
+            int boxW = tw + 40;
+            int boxH = th + 16;
+            int boxX = (getWidth() - boxW) / 2;
+            int boxY = 20;
+
+            // Background pill
+            g2.setColor(urgent ? new Color(160, 0, 0, 220) : new Color(0, 0, 0, 180));
+            g2.fillRoundRect(boxX, boxY, boxW, boxH, 20, 20);
+
+            // Border
+            g2.setStroke(new BasicStroke(2));
+            g2.setColor(urgent ? Color.RED : new Color(255, 255, 255, 80));
+            g2.drawRoundRect(boxX, boxY, boxW, boxH, 20, 20);
+
+            // Timer text
+            g2.setColor(urgent ? Color.YELLOW : Color.WHITE);
+            g2.drawString(timeStr, boxX + 20, boxY + th);
+        }
+
+        // ── Win screen ──
         if (currentState == State.FINISHED) {
-            // Dark overlay
             g2.setColor(new Color(0, 0, 0, 180));
             g2.fillRect(0, 0, getWidth(), getHeight());
 
             FontMetrics fm;
 
-            // "YOU REACHED THE GOAL!"
             g2.setColor(Color.YELLOW);
             g2.setFont(new Font("Arial", Font.BOLD, 65));
             fm = g2.getFontMetrics();
             String line1 = "YOU REACHED THE GOAL!";
-            int x1 = (getWidth() - fm.stringWidth(line1)) / 2;
-            g2.drawString(line1, x1, getHeight() / 2 - 40);
+            g2.drawString(line1, (getWidth() - fm.stringWidth(line1)) / 2, getHeight() / 2 - 40);
 
-            // "Final Grade: 1.0"
             g2.setColor(Color.WHITE);
             g2.setFont(new Font("Arial", Font.BOLD, 45));
             fm = g2.getFontMetrics();
             String line2 = "Final Grade: 1.0";
-            int x2 = (getWidth() - fm.stringWidth(line2)) / 2;
-            g2.drawString(line2, x2, getHeight() / 2 + 30);
+            g2.drawString(line2, (getWidth() - fm.stringWidth(line2)) / 2, getHeight() / 2 + 30);
+        }
+
+        // ── Game over screen ──
+        if (currentState == State.GAMEOVER) {
+            g2.setColor(new Color(0, 0, 0, 200));
+            g2.fillRect(0, 0, getWidth(), getHeight());
+
+            FontMetrics fm;
+
+            g2.setColor(Color.RED);
+            g2.setFont(new Font("Arial", Font.BOLD, 75));
+            fm = g2.getFontMetrics();
+            String line1 = "YOU LOSE.";
+            g2.drawString(line1, (getWidth() - fm.stringWidth(line1)) / 2, getHeight() / 2 - 40);
+
+            g2.setColor(Color.WHITE);
+            g2.setFont(new Font("Arial", Font.BOLD, 45));
+            fm = g2.getFontMetrics();
+            String line2 = "Final Grade: 5.0";
+            g2.drawString(line2, (getWidth() - fm.stringWidth(line2)) / 2, getHeight() / 2 + 30);
+
+            g2.setColor(new Color(180, 180, 180));
+            g2.setFont(new Font("Arial", Font.PLAIN, 22));
+            fm = g2.getFontMetrics();
+            String hint = "Press [ ESC ] to exit";
+            g2.drawString(hint, (getWidth() - fm.stringWidth(hint)) / 2, getHeight() / 2 + 90);
         }
     }
 }
