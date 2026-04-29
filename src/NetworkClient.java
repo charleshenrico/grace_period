@@ -91,6 +91,7 @@ public class NetworkClient implements Runnable {
     public List<String> getLobbyPlayers()      { return Collections.unmodifiableList(lobbyPlayers); }
     public String getHostName()                { return hostName; }
     public String getPlayerName()              { return playerName; }
+    public String getServerHost()              { return serverHost; }
 
     /** Returns a snapshot of remote player positions. Thread-safe. */
     public synchronized Map<String, int[]> getRemotePositions() {

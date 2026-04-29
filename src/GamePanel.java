@@ -16,18 +16,18 @@ public class GamePanel extends JPanel implements ActionListener {
     final double TARGET_ZOOM    = 2.5;
 
     static final Color[] PLAYER_COLORS = {
-        new Color(255, 80,  80),
-        new Color(80,  180, 255),
-        new Color(80,  255, 130),
-        new Color(255, 220, 50),
-        new Color(220, 80,  255),
-        new Color(255, 150, 50),
+            new Color(255, 80,  80),
+            new Color(80,  180, 255),
+            new Color(80,  255, 130),
+            new Color(255, 220, 50),
+            new Color(220, 80,  255),
+            new Color(255, 150, 50),
     };
 
     // ── State machine ─────────────────────────────────────────────────────────
     enum State { MAIN_MENU, MP_CHOICE, MP_NAME_ENTRY, MP_HOST_ENTRY,
-                 MP_LOBBY_HOST, MP_LOBBY_CLIENT,
-                 SHOW_MAP, ZOOMING, PLAYING, FINISHED, GAMEOVER }
+        MP_LOBBY_HOST, MP_LOBBY_CLIENT,
+        SHOW_MAP, ZOOMING, PLAYING, FINISHED, GAMEOVER }
     State currentState = State.MAIN_MENU;
 
     // ── Menu ──────────────────────────────────────────────────────────────────
@@ -477,11 +477,17 @@ public class GamePanel extends JPanel implements ActionListener {
         drawBg(g2);
         g2.setFont(new Font("Arial", Font.BOLD, 58)); centered(g2, "Multiplayer Lobby", 150);
 
-        // Show local IP so friends know what to type
+        // Host shows their own IP (so others know what to connect to).
+        // Joining clients show the server's address they connected to.
         try {
-            String ip = InetAddress.getLocalHost().getHostAddress();
+            String ip = isHost
+                    ? InetAddress.getLocalHost().getHostAddress()
+                    : (netClient != null ? netClient.getServerHost() : "?");
+            String label = isHost
+                    ? "Your IP (share this): " + ip + "   Port: " + GameServer.PORT
+                    : "Connected to: " + ip + "   Port: " + GameServer.PORT;
             g2.setFont(new Font("Arial", Font.PLAIN, 22));
-            centered(g2, "Server IP: " + ip + "   Port: " + GameServer.PORT, 200);
+            centered(g2, label, 200);
         } catch (Exception ignored) {}
 
         g2.setFont(new Font("Arial", Font.BOLD, 28)); centered(g2, "Players:", 270);
