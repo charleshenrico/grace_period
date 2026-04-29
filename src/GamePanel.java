@@ -7,6 +7,9 @@ import java.awt.image.BufferedImage;
 import java.net.InetAddress;
 import java.util.*;
 import java.util.List;
+import java.net.NetworkInterface;
+import java.net.Inet4Address;
+import java.util.Enumeration;
 
 public class GamePanel extends JPanel implements ActionListener {
 
@@ -480,9 +483,26 @@ public class GamePanel extends JPanel implements ActionListener {
         // Host shows their own IP (so others know what to connect to).
         // Joining clients show the server's address they connected to.
         try {
-            String ip = isHost
-                    ? InetAddress.getLocalHost().getHostAddress()
-                    : (netClient != null ? netClient.getServerHost() : "?");
+            String ip;
+            if (isHost) {
+                ip = "unknown";
+                try {
+                    Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
+                    while (interfaces.hasMoreElements()) {
+                        NetworkInterface ni = interfaces.nextElement();
+                        if (ni.isLoopback() || !ni.isUp()) continue;
+                        Enumeration<InetAddress> addresses = ni.getInetAddresses();
+                        while (addresses.hasMoreElements()) {
+                            InetAddress addr = addresses.nextElement();
+                            if (addr.isLoopbackAddress() || !(addr instanceof Inet4Address)) continue;
+                            ip = addr.getHostAddress();
+                            break;
+                        }
+                    }
+                } catch (Exception ignored) {}
+            } else {
+                ip = netClient != null ? netClient.getServerHost() : "?";
+            }
             String label = isHost
                     ? "Your IP (share this): " + ip + "   Port: " + GameServer.PORT
                     : "Connected to: " + ip + "   Port: " + GameServer.PORT;

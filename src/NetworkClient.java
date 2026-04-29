@@ -12,7 +12,7 @@ public class NetworkClient implements Runnable {
 
     public static final int PORT = GameServer.PORT;
     private static final int TIMEOUT_MS = 100;
-    private static final int PING_INTERVAL_MS = 1000;
+    private static final int PING_INTERVAL_MS = 500;
 
     // ── State ────────────────────────────────────────────────────────────────
     public enum Phase { CONNECTING, LOBBY, PLAYING, DISCONNECTED }

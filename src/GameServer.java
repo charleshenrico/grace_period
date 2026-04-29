@@ -1,6 +1,7 @@
 import java.io.IOException;
 import java.net.*;
 import java.util.*;
+import java.net.InetAddress;
 
 /**
  * UDP Game Server for Grace Period multiplayer.
@@ -22,7 +23,7 @@ public class GameServer implements Runnable {
     public static final int MAX_PLAYERS = 6;
     private static final int TIMEOUT_MS = 100;
     private static final int HEARTBEAT_INTERVAL_MS = 2000;
-    private static final int PLAYER_TIMEOUT_MS = 8000;
+    private static final int PLAYER_TIMEOUT_MS = 300000;
 
     private DatagramSocket serverSocket;
     private final Map<String, NetPlayerInfo> players = new LinkedHashMap<>();
@@ -35,7 +36,7 @@ public class GameServer implements Runnable {
 
     // ── Constructor ──────────────────────────────────────────────────────────
     public GameServer() throws IOException {
-        serverSocket = new DatagramSocket(PORT);
+        serverSocket = new DatagramSocket(PORT, InetAddress.getByName("0.0.0.0"));
         serverSocket.setSoTimeout(TIMEOUT_MS);
         mapSeed = System.currentTimeMillis();
         thread = new Thread(this, "GameServer");
@@ -87,6 +88,10 @@ public class GameServer implements Runnable {
 
     // ── Message dispatcher ───────────────────────────────────────────────────
     private synchronized void handleMessage(String data, InetAddress addr, int port) {
+        // Reset timeout for any message from a known player
+        NetPlayerInfo known = findPlayer(addr, port);
+        if (known != null) known.lastSeen = System.currentTimeMillis();
+
         if (data.startsWith("CONNECT ")) {
             handleConnect(data.substring(8).trim(), addr, port);
         } else if (data.equals("PING")) {
