@@ -1,7 +1,6 @@
 import java.io.IOException;
 import java.net.*;
 import java.util.*;
-import java.net.InetAddress;
 
 /**
  * UDP Game Server for Grace Period multiplayer.
@@ -23,7 +22,7 @@ public class GameServer implements Runnable {
     public static final int MAX_PLAYERS = 6;
     private static final int TIMEOUT_MS = 100;
     private static final int HEARTBEAT_INTERVAL_MS = 2000;
-    private static final int PLAYER_TIMEOUT_MS = 300000;
+    private static final int PLAYER_TIMEOUT_MS = 8000;
 
     private DatagramSocket serverSocket;
     private final Map<String, NetPlayerInfo> players = new LinkedHashMap<>();
@@ -36,7 +35,7 @@ public class GameServer implements Runnable {
 
     // ── Constructor ──────────────────────────────────────────────────────────
     public GameServer() throws IOException {
-        serverSocket = new DatagramSocket(PORT, InetAddress.getByName("0.0.0.0"));
+        serverSocket = new DatagramSocket(PORT);
         serverSocket.setSoTimeout(TIMEOUT_MS);
         mapSeed = System.currentTimeMillis();
         thread = new Thread(this, "GameServer");
@@ -100,6 +99,8 @@ public class GameServer implements Runnable {
             handleStartGame(addr, port);
         } else if (data.startsWith("POS ")) {
             handlePosition(data, addr, port);
+        } else if (data.startsWith("PICKUP ")) {
+            handlePickup(data, addr, port);
         }
     }
 
@@ -149,17 +150,19 @@ public class GameServer implements Runnable {
 
     private void handlePosition(String data, InetAddress addr, int port) {
         if (!gameStarted) return;
-        // POS <name> <x> <y>
+        // POS <name> <x> <y> <colorIndex>
         String[] parts = data.split(" ");
         if (parts.length < 4) return;
         String name = parts[1];
         try {
             int x = Integer.parseInt(parts[2]);
             int y = Integer.parseInt(parts[3]);
+            int col = parts.length >= 5 ? Integer.parseInt(parts[4]) : 0;
             NetPlayerInfo p = players.get(name);
             if (p != null) {
                 p.x = x;
                 p.y = y;
+                p.colorIndex = col;
                 p.lastSeen = System.currentTimeMillis();
             }
         } catch (NumberFormatException ignored) { return; }
@@ -168,13 +171,22 @@ public class GameServer implements Runnable {
         broadcast(buildStateString());
     }
 
+    private void handlePickup(String data, InetAddress addr, int port) {
+        if (!gameStarted) return;
+        // PICKUP <abilityIndex>
+        String[] parts = data.split(" ");
+        if (parts.length < 2) return;
+        // Broadcast removal to all clients so they all hide the same ability
+        broadcast("REMOVE " + parts[1]);
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────
     private String buildStateString() {
         StringBuilder sb = new StringBuilder("STATE ");
         boolean first = true;
         for (NetPlayerInfo p : players.values()) {
             if (!first) sb.append(',');
-            sb.append(p.name).append(':').append(p.x).append(':').append(p.y);
+            sb.append(p.name).append(':').append(p.x).append(':').append(p.y).append(':').append(p.colorIndex);
             first = false;
         }
         return sb.toString();
@@ -234,6 +246,7 @@ public class GameServer implements Runnable {
         final InetAddress address;
         final int port;
         int x, y;
+        int colorIndex = 0;
         long lastSeen = System.currentTimeMillis();
 
         NetPlayerInfo(String name, InetAddress address, int port) {

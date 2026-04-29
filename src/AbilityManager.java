@@ -141,14 +141,16 @@ public class AbilityManager {
         a.respawnTimer = 0;
     }
 
-    // Tick all abilities — handle pickup against player and respawn timers
-    public void update(Player player) {
-        for (Ability a : abilities) {
+    // Tick all abilities — returns index of ability picked up this tick, or -1
+    public int update(Player player) {
+        for (int i = 0; i < abilities.size(); i++) {
+            Ability a = abilities.get(i);
             if (a.active) {
                 if (a.intersects(player.x, player.y, player.size)) {
                     applyEffect(a, player);
                     a.active = false;
                     a.respawnTimer = 0;
+                    return i; // report which ability was picked up
                 }
             } else {
                 a.respawnTimer++;
@@ -156,6 +158,16 @@ public class AbilityManager {
                     respawn(a);
                 }
             }
+        }
+        return -1;
+    }
+
+    // Called when server tells us another player picked up ability at index i
+    public void remoteRemove(int index) {
+        if (index >= 0 && index < abilities.size()) {
+            Ability a = abilities.get(index);
+            a.active = false;
+            a.respawnTimer = 0;
         }
     }
 

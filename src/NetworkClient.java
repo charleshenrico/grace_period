@@ -12,7 +12,7 @@ public class NetworkClient implements Runnable {
 
     public static final int PORT = GameServer.PORT;
     private static final int TIMEOUT_MS = 100;
-    private static final int PING_INTERVAL_MS = 500;
+    private static final int PING_INTERVAL_MS = 1000;
 
     // ── State ────────────────────────────────────────────────────────────────
     public enum Phase { CONNECTING, LOBBY, PLAYING, DISCONNECTED }
@@ -29,12 +29,13 @@ public class NetworkClient implements Runnable {
     private volatile String hostName = "";
     private volatile boolean isHost = false;
 
-    // Remote players: name → (x, y)
+    // Remote players: name → (x, y, colorIndex)
     private final Map<String, int[]> remotePositions = new LinkedHashMap<>();
 
     // Callbacks (called on network thread — use SwingUtilities.invokeLater internally)
-    private Consumer<List<String>> onLobbyUpdate;   // receives current player list
-    private Consumer<Long>         onGameStart;     // receives map seed
+    private Consumer<List<String>> onLobbyUpdate;
+    private Consumer<Long>         onGameStart;
+    private Consumer<Integer>      onAbilityRemoved; // receives ability index
     private Runnable               onDisconnect;
 
     private Thread thread;
@@ -55,12 +56,12 @@ public class NetworkClient implements Runnable {
     // ── Callback setters ─────────────────────────────────────────────────────
     public void setOnLobbyUpdate(Consumer<List<String>> cb) { this.onLobbyUpdate = cb; }
     public void setOnGameStart(Consumer<Long> cb)           { this.onGameStart = cb; }
+    public void setOnAbilityRemoved(Consumer<Integer> cb)   { this.onAbilityRemoved = cb; }
     public void setOnDisconnect(Runnable cb)                { this.onDisconnect = cb; }
 
     // ── Start ─────────────────────────────────────────────────────────────────
     public void connect() {
         thread.start();
-        // Immediately send CONNECT
         send("CONNECT " + playerName);
     }
 
@@ -71,14 +72,19 @@ public class NetworkClient implements Runnable {
         if (socket != null && !socket.isClosed()) socket.close();
     }
 
-    // ── Send position update ──────────────────────────────────────────────────
-    public void sendPosition(int x, int y) {
+    // ── Send position + color update ──────────────────────────────────────────
+    public void sendPosition(int x, int y, int colorIndex) {
         if (phase == Phase.PLAYING) {
-            send("POS " + playerName + " " + x + " " + y);
+            send("POS " + playerName + " " + x + " " + y + " " + colorIndex);
         }
     }
 
-    // ── Host: start the game ──────────────────────────────────────────────────
+    // ── Notify server of ability pickup ───────────────────────────────────────
+    public void sendPickup(int abilityIndex) {
+        if (phase == Phase.PLAYING) {
+            send("PICKUP " + abilityIndex);
+        }
+    }
     public void requestStartGame() {
         if (isHost && phase == Phase.LOBBY) {
             send("START_GAME");
@@ -161,6 +167,12 @@ public class NetworkClient implements Runnable {
             // STATE n1:x1:y1,n2:x2:y2,...
             parseState(data.substring(6).trim());
 
+        } else if (data.startsWith("REMOVE ")) {
+            try {
+                int idx = Integer.parseInt(data.substring(7).trim());
+                if (onAbilityRemoved != null) onAbilityRemoved.accept(idx);
+            } catch (NumberFormatException ignored) {}
+
         } else if (data.equals("PONG")) {
             // server is alive — reset timeout counter
         } else if (data.startsWith("ERR ")) {
@@ -179,9 +191,9 @@ public class NetworkClient implements Runnable {
                 String name = parts[0];
                 int x = Integer.parseInt(parts[1]);
                 int y = Integer.parseInt(parts[2]);
-                // Don't store own player — GamePanel handles local player directly
+                int colorIndex = parts.length >= 4 ? Integer.parseInt(parts[3]) : 0;
                 if (!name.equals(playerName)) {
-                    remotePositions.put(name, new int[]{x, y});
+                    remotePositions.put(name, new int[]{x, y, colorIndex});
                 }
             } catch (NumberFormatException ignored) {}
         }

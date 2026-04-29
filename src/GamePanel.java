@@ -244,6 +244,9 @@ public class GamePanel extends JPanel implements ActionListener {
             currentState = netClient.isHost() ? State.MP_LOBBY_HOST : State.MP_LOBBY_CLIENT;
         }));
         nc.setOnGameStart(seed -> { pendingMapSeed = seed; pendingGameStart = true; });
+        nc.setOnAbilityRemoved(idx -> SwingUtilities.invokeLater(() -> {
+            if (abilityM != null) abilityM.remoteRemove(idx);
+        }));
         nc.setOnDisconnect(() -> SwingUtilities.invokeLater(() -> {
             if (currentState != State.MAIN_MENU) { errorMsg = "Disconnected."; returnToMenu(); }
         }));
@@ -323,25 +326,18 @@ public class GamePanel extends JPanel implements ActionListener {
         steps = Math.max(1, Math.min(steps, 5));
         for (int i = 0; i < steps; i++) {
             player.update(mapM.mapLayout);
-            abilityM.update(player);
+            int pickedUp = abilityM.update(player);
+            if (isMultiplayer && netClient != null && pickedUp >= 0) {
+                netClient.sendPickup(pickedUp);
+            }
         }
 
         if (isMultiplayer && netClient != null)
-            netClient.sendPosition(player.x, player.y);
+            netClient.sendPosition(player.x, player.y, chosenColorIndex);
 
         scaleX = TARGET_ZOOM; scaleY = TARGET_ZOOM;
         camX = (getWidth()  / 2.0) - (player.x + player.size/2.0) * TARGET_ZOOM;
         camY = (getHeight() / 2.0) - (player.y + player.size/2.0) * TARGET_ZOOM;
-
-        // Assign colours to new remote players
-        if (isMultiplayer && netClient != null) {
-            for (String rn : netClient.getRemotePositions().keySet()) {
-                if (!remoteColors.containsKey(rn)) {
-                    remoteColors.put(rn, PLAYER_COLORS[colorIndex % PLAYER_COLORS.length]);
-                    colorIndex++;
-                }
-            }
-        }
 
         // Win check
         int cc = player.getCenterCol(), cr = player.getCenterRow();
@@ -377,11 +373,13 @@ public class GamePanel extends JPanel implements ActionListener {
         mapM.draw(g2);
         abilityM.draw(g2);
 
-        // Remote ghosts
+        // Remote ghosts — use color sent by each remote player
         if (isMultiplayer && netClient != null && currentState == State.PLAYING) {
             for (Map.Entry<String,int[]> en : netClient.getRemotePositions().entrySet()) {
-                Color col = remoteColors.getOrDefault(en.getKey(), Color.CYAN);
-                drawGhost(g2, en.getKey(), en.getValue()[0], en.getValue()[1], col);
+                int[] data = en.getValue();
+                int ci = data.length >= 3 ? data[2] : 0;
+                Color col = PLAYER_COLORS[ci % PLAYER_COLORS.length];
+                drawGhost(g2, en.getKey(), data[0], data[1], col);
             }
         }
 
@@ -517,9 +515,9 @@ public class GamePanel extends JPanel implements ActionListener {
             centered(g2, label, 200);
         } catch (Exception ignored) {}
 
-        g2.setFont(new Font("Arial", Font.BOLD, 28)); centered(g2, "Players:", 270);
+        g2.setFont(new Font("Arial", Font.BOLD, 28)); centered(g2, "Players:", 250);
 
-        int ly = 310;
+        int ly = 285;
         for (int i=0; i<lobbyList.size(); i++) {
             String pn = lobbyList.get(i);
             boolean isH = netClient != null && pn.equals(netClient.getHostName());
@@ -533,6 +531,18 @@ public class GamePanel extends JPanel implements ActionListener {
             ly += 40;
         }
 
+        // Color picker
+        String[] colorNames = {"Red","Blue","Green","Yellow","Purple","Orange"};
+        g2.setFont(new Font("Arial", Font.BOLD, 22));
+        centered(g2, "Your color:  [ Q ] prev    [ E ] next", 560);
+        int swatchX = getWidth()/2 - 20;
+        g2.setColor(PLAYER_COLORS[chosenColorIndex]);
+        g2.fillRect(swatchX, 568, 40, 20);
+        g2.setColor(Color.WHITE); g2.setStroke(new BasicStroke(1));
+        g2.drawRect(swatchX, 568, 40, 20);
+        g2.setFont(new Font("Arial", Font.PLAIN, 18));
+        centered(g2, colorNames[chosenColorIndex], 606);
+
         if (isHost) {
             boolean canStart = lobbyList.size() >= 1;
             String btn = canStart ? "[ ENTER ] Start Game" : "Waiting for players to join...";
@@ -540,25 +550,14 @@ public class GamePanel extends JPanel implements ActionListener {
             FontMetrics fm = g2.getFontMetrics();
             int bx = (getWidth() - fm.stringWidth(btn)) / 2;
             g2.setColor(canStart && frameCount%60<40 ? Color.YELLOW : new Color(180,180,180));
-            g2.drawString(btn, bx, 620);
+            g2.drawString(btn, bx, 648);
         } else {
             g2.setFont(new Font("Arial", Font.ITALIC, 28));
-            centered(g2, "Waiting for host to start the game...", 620);
+            centered(g2, "Waiting for host to start the game...", 648);
         }
-        // Color picker
-        String[] colorNames = {"Red","Blue","Green","Yellow","Purple","Orange"};
-        g2.setFont(new Font("Arial", Font.BOLD, 22));
-        centered(g2, "Your color:  [ Q ] prev    [ E ] next", 590);
-        int swatchX = getWidth()/2 - 20;
-        g2.setColor(PLAYER_COLORS[chosenColorIndex]);
-        g2.fillRect(swatchX, 600, 40, 20);
-        g2.setColor(Color.WHITE); g2.setStroke(new BasicStroke(1));
-        g2.drawRect(swatchX, 600, 40, 20);
-        g2.setFont(new Font("Arial", Font.PLAIN, 18));
-        centered(g2, colorNames[chosenColorIndex], 638);
 
         g2.setFont(new Font("Arial", Font.PLAIN, 20));
-        centered(g2, "[ ESC ] disconnect & return to menu", 680);
+        centered(g2, "[ ESC ] disconnect & return to menu", 690);
     }
 
     private void drawGhost(Graphics2D g2, String name, int x, int y, Color col) {
