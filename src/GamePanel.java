@@ -7,9 +7,6 @@ import java.awt.image.BufferedImage;
 import java.net.InetAddress;
 import java.util.*;
 import java.util.List;
-import java.net.NetworkInterface;
-import java.net.Inet4Address;
-import java.util.Enumeration;
 
 public class GamePanel extends JPanel implements ActionListener {
 
@@ -67,6 +64,7 @@ public class GamePanel extends JPanel implements ActionListener {
     List<String>  lobbyList = new ArrayList<>();
     Map<String,Color> remoteColors = new LinkedHashMap<>();
     int colorIndex = 1;
+    int chosenColorIndex = 0; // player's chosen color
 
     volatile long    pendingMapSeed   = -1;
     volatile boolean pendingGameStart = false;
@@ -76,7 +74,7 @@ public class GamePanel extends JPanel implements ActionListener {
         setPreferredSize(new Dimension(1280, 800));
         setBackground(new Color(34, 139, 34));
         setFocusable(true);
-        try { bgImage = ImageIO.read(getClass().getResourceAsStream("/background.jpg")); }
+        try { bgImage = loadImage("background.jpg"); }
         catch (Exception ignored) {}
         setupKeys();
         timer = new javax.swing.Timer(16, this);
@@ -111,10 +109,20 @@ public class GamePanel extends JPanel implements ActionListener {
         im.put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER,     0, false), "enter");
         im.put(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE,    0, false), "escape");
         im.put(KeyStroke.getKeyStroke(KeyEvent.VK_BACK_SPACE,0, false), "bs");
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_Q,         0, false), "colorPrev");
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_E,         0, false), "colorNext");
 
         am.put("enter",  new AbstractAction() { public void actionPerformed(ActionEvent e) { onEnter();     } });
         am.put("escape", new AbstractAction() { public void actionPerformed(ActionEvent e) { onEscape();    } });
         am.put("bs",     new AbstractAction() { public void actionPerformed(ActionEvent e) { onBackspace(); } });
+        am.put("colorPrev", new AbstractAction() { public void actionPerformed(ActionEvent e) {
+            if (currentState == State.MP_LOBBY_HOST || currentState == State.MP_LOBBY_CLIENT)
+                chosenColorIndex = (chosenColorIndex + PLAYER_COLORS.length - 1) % PLAYER_COLORS.length;
+        }});
+        am.put("colorNext", new AbstractAction() { public void actionPerformed(ActionEvent e) {
+            if (currentState == State.MP_LOBBY_HOST || currentState == State.MP_LOBBY_CLIENT)
+                chosenColorIndex = (chosenColorIndex + 1) % PLAYER_COLORS.length;
+        }});
     }
 
     private void bindKey(InputMap im, ActionMap am, int vk, boolean rel, String id, ActionListener al) {
@@ -200,7 +208,7 @@ public class GamePanel extends JPanel implements ActionListener {
     // ── Single-player ─────────────────────────────────────────────────────────
     private void startSinglePlayer() {
         isMultiplayer = false;
-        initGame("P1");
+        initGame("P1", System.currentTimeMillis());
         currentState = State.SHOW_MAP; frameCount = 0;
     }
 
@@ -243,10 +251,10 @@ public class GamePanel extends JPanel implements ActionListener {
     }
 
     // ── Init game world ───────────────────────────────────────────────────────
-    private void initGame(String myName) {
-        mapM     = new MapManager(MazeGenerator.generateMap());
-        player   = new Player((50*40)+5, (57*40)+5, PLAYER_COLORS[0], Color.BLACK, myName);
-        abilityM = new AbilityManager(mapM.mapLayout);
+    private void initGame(String myName, long seed) {
+        mapM     = new MapManager(MazeGenerator.generateMap(seed));
+        player   = new Player((50*40)+5, (57*40)+5, PLAYER_COLORS[chosenColorIndex], Color.BLACK, myName);
+        abilityM = new AbilityManager(mapM.mapLayout, seed);
         timeMillisLeft = 60_000; lastUpdateTime = -1;
         remoteColors.clear(); colorIndex = 1; frameCount = 0;
     }
@@ -276,7 +284,7 @@ public class GamePanel extends JPanel implements ActionListener {
             pendingGameStart = false;
             isMultiplayer = true;
             String myName = netClient != null ? netClient.getPlayerName() : "P1";
-            initGame(myName);
+            initGame(myName, pendingMapSeed);
             currentState = State.SHOW_MAP; frameCount = 0;
             return;
         }
@@ -305,12 +313,18 @@ public class GamePanel extends JPanel implements ActionListener {
 
     private void updatePlaying() {
         long now = System.currentTimeMillis();
-        timeMillisLeft -= now - lastUpdateTime;
-        lastUpdateTime  = now;
+        long delta = now - lastUpdateTime;
+        lastUpdateTime = now;
+        timeMillisLeft -= delta;
         if (timeMillisLeft <= 0) { timeMillisLeft = 0; currentState = State.GAMEOVER; return; }
 
-        player.update(mapM.mapLayout);
-        abilityM.update(player);
+        // Run update steps proportional to elapsed time to keep speed consistent across lag
+        int steps = (int) Math.round(delta / 16.67);
+        steps = Math.max(1, Math.min(steps, 5));
+        for (int i = 0; i < steps; i++) {
+            player.update(mapM.mapLayout);
+            abilityM.update(player);
+        }
 
         if (isMultiplayer && netClient != null)
             netClient.sendPosition(player.x, player.y);
@@ -380,6 +394,16 @@ public class GamePanel extends JPanel implements ActionListener {
     }
 
     // ── UI helpers ────────────────────────────────────────────────────────────
+    private BufferedImage loadImage(String name) {
+        try {
+            java.io.InputStream is = getClass().getResourceAsStream("/" + name);
+            if (is != null) return ImageIO.read(is);
+        } catch (Exception ignored) {}
+        try { return ImageIO.read(new java.io.File("res/" + name)); }
+        catch (Exception ignored) {}
+        return null;
+    }
+
     private void drawBg(Graphics2D g2) {
         if (bgImage != null) g2.drawImage(bgImage, 0, 0, getWidth(), getHeight(), null);
         else { g2.setColor(Color.DARK_GRAY); g2.fillRect(0,0,getWidth(),getHeight()); }
@@ -483,26 +507,9 @@ public class GamePanel extends JPanel implements ActionListener {
         // Host shows their own IP (so others know what to connect to).
         // Joining clients show the server's address they connected to.
         try {
-            String ip;
-            if (isHost) {
-                ip = "unknown";
-                try {
-                    Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
-                    while (interfaces.hasMoreElements()) {
-                        NetworkInterface ni = interfaces.nextElement();
-                        if (ni.isLoopback() || !ni.isUp()) continue;
-                        Enumeration<InetAddress> addresses = ni.getInetAddresses();
-                        while (addresses.hasMoreElements()) {
-                            InetAddress addr = addresses.nextElement();
-                            if (addr.isLoopbackAddress() || !(addr instanceof Inet4Address)) continue;
-                            ip = addr.getHostAddress();
-                            break;
-                        }
-                    }
-                } catch (Exception ignored) {}
-            } else {
-                ip = netClient != null ? netClient.getServerHost() : "?";
-            }
+            String ip = isHost
+                    ? InetAddress.getLocalHost().getHostAddress()
+                    : (netClient != null ? netClient.getServerHost() : "?");
             String label = isHost
                     ? "Your IP (share this): " + ip + "   Port: " + GameServer.PORT
                     : "Connected to: " + ip + "   Port: " + GameServer.PORT;
@@ -538,6 +545,18 @@ public class GamePanel extends JPanel implements ActionListener {
             g2.setFont(new Font("Arial", Font.ITALIC, 28));
             centered(g2, "Waiting for host to start the game...", 620);
         }
+        // Color picker
+        String[] colorNames = {"Red","Blue","Green","Yellow","Purple","Orange"};
+        g2.setFont(new Font("Arial", Font.BOLD, 22));
+        centered(g2, "Your color:  [ Q ] prev    [ E ] next", 590);
+        int swatchX = getWidth()/2 - 20;
+        g2.setColor(PLAYER_COLORS[chosenColorIndex]);
+        g2.fillRect(swatchX, 600, 40, 20);
+        g2.setColor(Color.WHITE); g2.setStroke(new BasicStroke(1));
+        g2.drawRect(swatchX, 600, 40, 20);
+        g2.setFont(new Font("Arial", Font.PLAIN, 18));
+        centered(g2, colorNames[chosenColorIndex], 638);
+
         g2.setFont(new Font("Arial", Font.PLAIN, 20));
         centered(g2, "[ ESC ] disconnect & return to menu", 680);
     }

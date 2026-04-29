@@ -24,7 +24,7 @@ public class AbilityManager {
 
     private final int[][] mapLayout;
     private final List<Ability> abilities = new ArrayList<>();
-    private final Random rng = new Random();
+    private final Random rng;
 
     private BufferedImage staminaImage;
     private BufferedImage invisibilityImage;
@@ -32,17 +32,32 @@ public class AbilityManager {
     private BufferedImage slowDownImage;
 
     public AbilityManager(int[][] mapLayout) {
+        this(mapLayout, System.currentTimeMillis());
+    }
+
+    public AbilityManager(int[][] mapLayout, long seed) {
         this.mapLayout = mapLayout;
+        this.rng = new Random(seed);
         loadImages();
         spawnInitial();
     }
 
+    private BufferedImage loadImage(String name) {
+        try {
+            java.io.InputStream is = getClass().getResourceAsStream("/" + name);
+            if (is != null) return ImageIO.read(is);
+        } catch (Exception ignored) {}
+        try { return ImageIO.read(new java.io.File("res/" + name)); }
+        catch (Exception ignored) {}
+        return null;
+    }
+
     private void loadImages() {
         try {
-            staminaImage      = ImageIO.read(getClass().getResourceAsStream("/Stamina-Boost.png"));
-            invisibilityImage = ImageIO.read(getClass().getResourceAsStream("/Invisibility.png"));
-            shieldImage       = ImageIO.read(getClass().getResourceAsStream("/Shield.png"));
-            slowDownImage     = ImageIO.read(getClass().getResourceAsStream("/Slow-Down.png"));
+            staminaImage      = loadImage("Stamina-Boost.png");
+            invisibilityImage = loadImage("Invisibility.png");
+            shieldImage       = loadImage("Shield.png");
+            slowDownImage     = loadImage("Slow-Down.png");
         } catch (Exception e) {
             System.out.println("Notice: Some ability icons missing in 'res' folder. Using colored circles.");
         }

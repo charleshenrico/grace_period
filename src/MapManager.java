@@ -26,19 +26,29 @@ public class MapManager {
         loadImages();
     }
 
+    private BufferedImage loadImage(String name) {
+        try {
+            java.io.InputStream is = getClass().getResourceAsStream("/" + name);
+            if (is != null) return ImageIO.read(is);
+        } catch (Exception ignored) {}
+        try { return ImageIO.read(new java.io.File("res/" + name)); }
+        catch (Exception ignored) {}
+        return null;
+    }
+
     private void loadImages() {
         try {
             for (int i = 1; i <= 9; i++) {
-                pathImages[i] = ImageIO.read(getClass().getResourceAsStream("/path" + i + ".png"));
+                pathImages[i] = loadImage("path" + i + ".png");
             }
-            treeImage     = ImageIO.read(getClass().getResourceAsStream("/tree.png"));
-            wallImage     = ImageIO.read(getClass().getResourceAsStream("/wall.png"));
-            physciImage   = ImageIO.read(getClass().getResourceAsStream("/PhySci.png"));
-            gateImage     = ImageIO.read(getClass().getResourceAsStream("/Gate.png"));
-            towerImage    = ImageIO.read(getClass().getResourceAsStream("/Tower.png"));
-            obleImage     = ImageIO.read(getClass().getResourceAsStream("/Oble.png"));
-            carillonImage = ImageIO.read(getClass().getResourceAsStream("/Carilion.png"));
-            libraryImage  = ImageIO.read(getClass().getResourceAsStream("/Library.png"));
+            treeImage     = loadImage("tree.png");
+            wallImage     = loadImage("wall.png");
+            physciImage   = loadImage("PhySci.png");
+            gateImage     = loadImage("Gate.png");
+            towerImage    = loadImage("Tower.png");
+            obleImage     = loadImage("Oble.png");
+            carillonImage = loadImage("Carilion.png");
+            libraryImage  = loadImage("Library.png");
         } catch (Exception e) {
             System.out.println("Notice: Some images missing in 'res' folder. Using colors instead.");
         }
