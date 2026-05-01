@@ -43,7 +43,7 @@ public class GamePanel extends JPanel implements ActionListener {
     MapManager     mapM;
     AbilityManager abilityM;
     Player         player;
-    javax.swing.Timer          timer;
+    javax.swing.Timer timer;
 
     // ── Camera / animation ────────────────────────────────────────────────────
     int    frameCount = 0;
@@ -64,7 +64,7 @@ public class GamePanel extends JPanel implements ActionListener {
     List<String>  lobbyList = new ArrayList<>();
     Map<String,Color> remoteColors = new LinkedHashMap<>();
     int colorIndex = 1;
-    int chosenColorIndex = 0; // player's chosen color
+    int chosenColorIndex = 0;
 
     volatile long    pendingMapSeed   = -1;
     volatile boolean pendingGameStart = false;
@@ -86,7 +86,6 @@ public class GamePanel extends JPanel implements ActionListener {
         InputMap  im = getInputMap(WHEN_IN_FOCUSED_WINDOW);
         ActionMap am = getActionMap();
 
-        // movement on/off
         bindKey(im, am, KeyEvent.VK_W,     false, "wOn",  e -> { if (player!=null) player.upPressed    = true;  });
         bindKey(im, am, KeyEvent.VK_S,     false, "sOn",  e -> { if (player!=null) player.downPressed  = true;  });
         bindKey(im, am, KeyEvent.VK_A,     false, "aOn",  e -> { if (player!=null) player.leftPressed  = true;  });
@@ -106,21 +105,21 @@ public class GamePanel extends JPanel implements ActionListener {
         bindKey(im, am, KeyEvent.VK_LEFT,  true,  "ltf", e -> { if (player!=null) player.leftPressed  = false; });
         bindKey(im, am, KeyEvent.VK_RIGHT, true,  "rtf", e -> { if (player!=null) player.rightPressed = false; });
 
-        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER,     0, false), "enter");
-        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE,    0, false), "escape");
-        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_BACK_SPACE,0, false), "bs");
-        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_Q,         0, false), "colorPrev");
-        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_E,         0, false), "colorNext");
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER,      0, false), "enter");
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE,     0, false), "escape");
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_BACK_SPACE, 0, false), "bs");
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_Q,          0, false), "colorPrev");
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_E,          0, false), "colorNext");
 
         am.put("enter",  new AbstractAction() { public void actionPerformed(ActionEvent e) { onEnter();     } });
         am.put("escape", new AbstractAction() { public void actionPerformed(ActionEvent e) { onEscape();    } });
         am.put("bs",     new AbstractAction() { public void actionPerformed(ActionEvent e) { onBackspace(); } });
         am.put("colorPrev", new AbstractAction() { public void actionPerformed(ActionEvent e) {
-            if (currentState == State.MP_LOBBY_HOST || currentState == State.MP_LOBBY_CLIENT)
+            if (currentState==State.MP_LOBBY_HOST || currentState==State.MP_LOBBY_CLIENT)
                 chosenColorIndex = (chosenColorIndex + PLAYER_COLORS.length - 1) % PLAYER_COLORS.length;
         }});
         am.put("colorNext", new AbstractAction() { public void actionPerformed(ActionEvent e) {
-            if (currentState == State.MP_LOBBY_HOST || currentState == State.MP_LOBBY_CLIENT)
+            if (currentState==State.MP_LOBBY_HOST || currentState==State.MP_LOBBY_CLIENT)
                 chosenColorIndex = (chosenColorIndex + 1) % PLAYER_COLORS.length;
         }});
     }
@@ -134,7 +133,6 @@ public class GamePanel extends JPanel implements ActionListener {
         super.addNotify();
         addKeyListener(new KeyAdapter() {
             @Override public void keyPressed(KeyEvent e) {
-                // arrow keys drive menu selection
                 if (currentState == State.MAIN_MENU) {
                     if (e.getKeyCode()==KeyEvent.VK_UP || e.getKeyCode()==KeyEvent.VK_DOWN)
                         mainSel = 1 - mainSel;
@@ -145,8 +143,7 @@ public class GamePanel extends JPanel implements ActionListener {
             }
             @Override public void keyTyped(KeyEvent e) {
                 char c = e.getKeyChar();
-                if (c == '\b' || c == '\n' || c == '\r') return;
-                if (c < 32) return;
+                if (c == '\b' || c == '\n' || c == '\r' || c < 32) return;
                 if (currentState == State.MP_NAME_ENTRY && nameInput.length() < 20) {
                     nameInput.append(c); errorMsg = "";
                 } else if (currentState == State.MP_HOST_ENTRY && hostInput.length() < 40) {
@@ -156,7 +153,7 @@ public class GamePanel extends JPanel implements ActionListener {
         });
     }
 
-    // ── Enter / Escape / Backspace ────────────────────────────────────────────
+    // ── Enter / Escape / Backspace ─────────────────────────────────────────────
     private void onEnter() {
         switch (currentState) {
             case MAIN_MENU:
@@ -205,14 +202,14 @@ public class GamePanel extends JPanel implements ActionListener {
             hostInput.deleteCharAt(hostInput.length()-1);
     }
 
-    // ── Single-player ─────────────────────────────────────────────────────────
+    // ── Single-player ──────────────────────────────────────────────────────────
     private void startSinglePlayer() {
         isMultiplayer = false;
         initGame("P1", System.currentTimeMillis());
         currentState = State.SHOW_MAP; frameCount = 0;
     }
 
-    // ── Multiplayer: host ─────────────────────────────────────────────────────
+    // ── Multiplayer: host ──────────────────────────────────────────────────────
     private void tryCreateServer(String name) {
         try { hostedServer = new GameServer(); }
         catch (Exception ex) { errorMsg = "Cannot start server: " + ex.getMessage(); return; }
@@ -226,7 +223,7 @@ public class GamePanel extends JPanel implements ActionListener {
         }
     }
 
-    // ── Multiplayer: join ─────────────────────────────────────────────────────
+    // ── Multiplayer: join ──────────────────────────────────────────────────────
     private void tryJoinServer(String name, String host) {
         try {
             netClient = buildClient(host, name);
@@ -239,30 +236,44 @@ public class GamePanel extends JPanel implements ActionListener {
 
     private NetworkClient buildClient(String host, String name) throws Exception {
         NetworkClient nc = new NetworkClient(host, name);
+
         nc.setOnLobbyUpdate(names -> SwingUtilities.invokeLater(() -> {
             lobbyList = new ArrayList<>(names);
             currentState = netClient.isHost() ? State.MP_LOBBY_HOST : State.MP_LOBBY_CLIENT;
         }));
+
         nc.setOnGameStart(seed -> { pendingMapSeed = seed; pendingGameStart = true; });
+
         nc.setOnAbilityRemoved(idx -> SwingUtilities.invokeLater(() -> {
             if (abilityM != null) abilityM.remoteRemove(idx);
         }));
+
+        // TRAP_YOU: an enemy used a trap against us — apply it to the local player
+        nc.setOnTrapReceived(trapType -> SwingUtilities.invokeLater(() -> {
+            if (player == null) return;
+            switch (trapType) {
+                case "SLOW_DOWN":        player.applySlowDown();        break;
+                case "REVERSE_CONTROLS": player.applyReverseControls(); break;
+            }
+        }));
+
         nc.setOnDisconnect(() -> SwingUtilities.invokeLater(() -> {
             if (currentState != State.MAIN_MENU) { errorMsg = "Disconnected."; returnToMenu(); }
         }));
+
         return nc;
     }
 
-    // ── Init game world ───────────────────────────────────────────────────────
+    // ── Init game world ────────────────────────────────────────────────────────
     private void initGame(String myName, long seed) {
         mapM     = new MapManager(MazeGenerator.generateMap(seed));
         player   = new Player((50*40)+5, (57*40)+5, PLAYER_COLORS[chosenColorIndex], Color.BLACK, myName);
-        abilityM = new AbilityManager(mapM.mapLayout, seed);
+        abilityM = new AbilityManager(mapM.mapLayout, seed, isMultiplayer);
         timeMillisLeft = 60_000; lastUpdateTime = -1;
         remoteColors.clear(); colorIndex = 1; frameCount = 0;
     }
 
-    // ── Cleanup ───────────────────────────────────────────────────────────────
+    // ── Cleanup ────────────────────────────────────────────────────────────────
     private void returnToMenu() {
         disconnectNetwork();
         currentState = State.MAIN_MENU;
@@ -272,17 +283,16 @@ public class GamePanel extends JPanel implements ActionListener {
     }
 
     private void disconnectNetwork() {
-        if (netClient != null)    { netClient.stop();    netClient    = null; }
+        if (netClient    != null) { netClient.stop();    netClient    = null; }
         if (hostedServer != null) { hostedServer.stop(); hostedServer = null; }
     }
 
-    // ── Game loop ─────────────────────────────────────────────────────────────
+    // ── Game loop ──────────────────────────────────────────────────────────────
     @Override public void actionPerformed(ActionEvent e) { update(); repaint(); }
 
     private void update() {
         frameCount++;
 
-        // Network-triggered game start
         if (pendingGameStart) {
             pendingGameStart = false;
             isMultiplayer = true;
@@ -321,19 +331,28 @@ public class GamePanel extends JPanel implements ActionListener {
         timeMillisLeft -= delta;
         if (timeMillisLeft <= 0) { timeMillisLeft = 0; currentState = State.GAMEOVER; return; }
 
-        // Run update steps proportional to elapsed time to keep speed consistent across lag
         int steps = (int) Math.round(delta / 16.67);
         steps = Math.max(1, Math.min(steps, 5));
+
         for (int i = 0; i < steps; i++) {
             player.update(mapM.mapLayout);
             int pickedUp = abilityM.update(player);
-            if (isMultiplayer && netClient != null && pickedUp >= 0) {
+            if (pickedUp >= 0 && isMultiplayer && netClient != null) {
+                // Always sync icon removal with all clients
                 netClient.sendPickup(pickedUp);
+
+                // Enemy-trap abilities additionally send a trap broadcast
+                Ability.Type t = abilityM.getAbilityType(pickedUp);
+                if (t == Ability.Type.SLOW_DOWN || t == Ability.Type.REVERSE_CONTROLS) {
+                    netClient.sendTrapOthers(t.name());
+                }
             }
         }
 
-        if (isMultiplayer && netClient != null)
-            netClient.sendPosition(player.x, player.y, chosenColorIndex);
+        // Broadcast local player's position + ability state
+        if (isMultiplayer && netClient != null) {
+            netClient.sendPosition(player.x, player.y, chosenColorIndex, player.getAbilityFlags());
+        }
 
         scaleX = TARGET_ZOOM; scaleY = TARGET_ZOOM;
         camX = (getWidth()  / 2.0) - (player.x + player.size/2.0) * TARGET_ZOOM;
@@ -341,12 +360,12 @@ public class GamePanel extends JPanel implements ActionListener {
 
         // Win check
         int cc = player.getCenterCol(), cr = player.getCenterRow();
-        if (cr>=0 && cr<mapM.mapLayout.length && cc>=0 && cc<mapM.mapLayout[0].length
+        if (cr >= 0 && cr < mapM.mapLayout.length && cc >= 0 && cc < mapM.mapLayout[0].length
                 && mapM.mapLayout[cr][cc] == 2)
             currentState = State.FINISHED;
     }
 
-    // ── Paint ─────────────────────────────────────────────────────────────────
+    // ── Paint ──────────────────────────────────────────────────────────────────
     @Override protected void paintComponent(Graphics g) {
         super.paintComponent(g);
         Graphics2D g2 = (Graphics2D) g;
@@ -373,13 +392,14 @@ public class GamePanel extends JPanel implements ActionListener {
         mapM.draw(g2);
         abilityM.draw(g2);
 
-        // Remote ghosts — use color sent by each remote player
+        // Remote player ghosts — render with ability state from their flag bits
         if (isMultiplayer && netClient != null && currentState == State.PLAYING) {
-            for (Map.Entry<String,int[]> en : netClient.getRemotePositions().entrySet()) {
-                int[] data = en.getValue();
-                int ci = data.length >= 3 ? data[2] : 0;
-                Color col = PLAYER_COLORS[ci % PLAYER_COLORS.length];
-                drawGhost(g2, en.getKey(), data[0], data[1], col);
+            for (Map.Entry<String, int[]> en : netClient.getRemotePositions().entrySet()) {
+                int[] data  = en.getValue();
+                int ci      = data.length >= 3 ? data[2] : 0;
+                int flags   = data.length >= 4 ? data[3] : 0;
+                Color col   = PLAYER_COLORS[ci % PLAYER_COLORS.length];
+                drawGhost(g2, en.getKey(), data[0], data[1], col, flags);
             }
         }
 
@@ -391,7 +411,60 @@ public class GamePanel extends JPanel implements ActionListener {
         if (currentState == State.GAMEOVER) drawOverlay(g2, "YOU LOSE.", "Final Grade: 5.0", Color.RED);
     }
 
-    // ── UI helpers ────────────────────────────────────────────────────────────
+    // ── Ghost drawing with ability flags ──────────────────────────────────────
+    /**
+     * Draws a remote player's ghost.
+     * Reads ability flag bits from the value broadcast by that player's client:
+     *   bit 0 (1): shield  — draw a shield ring (no timer shown)
+     *   bit 1 (2): invisible — skip drawing entirely (enemy cannot see them)
+     *   bit 2 (4): slowed   — draw in blue
+     *   bit 3 (8): reversed — show "REV" label above
+     */
+    private void drawGhost(Graphics2D g2, String name, int x, int y, Color col, int flags) {
+        boolean shielded  = (flags & 1) != 0;
+        boolean invisible = (flags & 2) != 0;
+        boolean slowed    = (flags & 4) != 0;
+        boolean reversed  = (flags & 8) != 0;
+
+        // Invisible: do not render this opponent at all on other screens
+        if (invisible) return;
+
+        // Body color — blue tint when slowed
+        Color body = slowed ? new Color(120, 160, 220) : col;
+        g2.setColor(body);
+        g2.fillRect(x, y, 30, 30);
+        g2.setColor(Color.WHITE);
+        g2.setStroke(new BasicStroke(2));
+        g2.drawRect(x, y, 30, 30);
+
+        // Shield ring (no countdown — just the ring)
+        if (shielded) {
+            g2.setColor(new Color(120, 200, 230));
+            g2.setStroke(new BasicStroke(3));
+            int pad = 5;
+            g2.drawOval(x - pad, y - pad, 30 + pad * 2, 30 + pad * 2);
+            g2.setStroke(new BasicStroke(1));
+        }
+
+        // Name label
+        g2.setFont(new Font("Arial", Font.BOLD, 12));
+        FontMetrics fm = g2.getFontMetrics();
+        int lx = x + (30 - fm.stringWidth(name)) / 2;
+        g2.setColor(Color.BLACK); g2.drawString(name, lx + 1, y - 4);
+        g2.setColor(Color.WHITE); g2.drawString(name, lx, y - 5);
+
+        // Status indicator for reversed controls
+        if (reversed) {
+            g2.setFont(new Font("Arial", Font.BOLD, 10));
+            String tag = "REV";
+            FontMetrics fm2 = g2.getFontMetrics();
+            int tx = x + (30 - fm2.stringWidth(tag)) / 2;
+            g2.setColor(Color.BLACK);          g2.drawString(tag, tx + 1, y - 16);
+            g2.setColor(new Color(200, 100, 220)); g2.drawString(tag, tx, y - 17);
+        }
+    }
+
+    // ── UI helpers ─────────────────────────────────────────────────────────────
     private BufferedImage loadImage(String name) {
         try {
             java.io.InputStream is = getClass().getResourceAsStream("/" + name);
@@ -404,8 +477,9 @@ public class GamePanel extends JPanel implements ActionListener {
 
     private void drawBg(Graphics2D g2) {
         if (bgImage != null) g2.drawImage(bgImage, 0, 0, getWidth(), getHeight(), null);
-        else { g2.setColor(Color.DARK_GRAY); g2.fillRect(0,0,getWidth(),getHeight()); }
-        g2.setColor(new Color(0,0,0,120)); g2.fillRect(0,0,getWidth(),getHeight());
+        else { g2.setColor(Color.DARK_GRAY); g2.fillRect(0, 0, getWidth(), getHeight()); }
+        g2.setColor(new Color(0, 0, 0, 120));
+        g2.fillRect(0, 0, getWidth(), getHeight());
     }
 
     private void shadow(Graphics2D g2, String t, int x, int y) {
@@ -420,18 +494,18 @@ public class GamePanel extends JPanel implements ActionListener {
 
     private void drawMainMenu(Graphics2D g2) {
         drawBg(g2);
-        g2.setFont(new Font("Arial", Font.BOLD, 72)); centered(g2, "Welcome to Grace Period", 220);
+        g2.setFont(new Font("Arial", Font.BOLD, 72));   centered(g2, "Welcome to Grace Period", 220);
         g2.setFont(new Font("Arial", Font.ITALIC, 38)); centered(g2, "don't be late...", 285);
 
         String[] opts = { "> 1 Player <", "> Multiplayer <" };
         int[] ys = { 430, 510 };
-        for (int i=0; i<2; i++) {
+        for (int i = 0; i < 2; i++) {
             g2.setFont(new Font("Arial", Font.BOLD, 40));
             FontMetrics fm = g2.getFontMetrics();
             int x = (getWidth() - fm.stringWidth(opts[i])) / 2;
             boolean sel = mainSel == i;
             if (sel && frameCount%60<30) g2.setColor(Color.YELLOW);
-            else g2.setColor(sel ? Color.ORANGE : new Color(180,180,180));
+            else g2.setColor(sel ? Color.ORANGE : new Color(180, 180, 180));
             g2.drawString(opts[i], x, ys[i]);
         }
         g2.setFont(new Font("Arial", Font.PLAIN, 20));
@@ -444,13 +518,13 @@ public class GamePanel extends JPanel implements ActionListener {
         g2.setFont(new Font("Arial", Font.BOLD, 65)); centered(g2, "Multiplayer", 200);
         String[] opts = { "> Create Server <", "> Join Server <" };
         int[] ys = { 390, 470 };
-        for (int i=0; i<2; i++) {
+        for (int i = 0; i < 2; i++) {
             g2.setFont(new Font("Arial", Font.BOLD, 40));
             FontMetrics fm = g2.getFontMetrics();
             int x = (getWidth() - fm.stringWidth(opts[i])) / 2;
             boolean sel = mpSel == i;
             if (sel && frameCount%60<30) g2.setColor(Color.YELLOW);
-            else g2.setColor(sel ? Color.ORANGE : new Color(180,180,180));
+            else g2.setColor(sel ? Color.ORANGE : new Color(180, 180, 180));
             g2.drawString(opts[i], x, ys[i]);
         }
         g2.setFont(new Font("Arial", Font.PLAIN, 20));
@@ -460,8 +534,8 @@ public class GamePanel extends JPanel implements ActionListener {
     private void drawNameEntry(Graphics2D g2) {
         drawBg(g2);
         String title = isCreatingServer ? "Create Server" : "Join Server - Step 1/2";
-        g2.setFont(new Font("Arial", Font.BOLD, 58)); centered(g2, title, 210);
-        g2.setFont(new Font("Arial", Font.PLAIN, 30)); centered(g2, "Enter your player name:", 340);
+        g2.setFont(new Font("Arial", Font.BOLD, 58));   centered(g2, title, 210);
+        g2.setFont(new Font("Arial", Font.PLAIN, 30));  centered(g2, "Enter your player name:", 340);
         drawInputBox(g2, nameInput.toString(), 390);
         g2.setFont(new Font("Arial", Font.PLAIN, 20));
         centered(g2, "[ ENTER ] confirm    [ ESC ] back", 630);
@@ -470,20 +544,19 @@ public class GamePanel extends JPanel implements ActionListener {
 
     private void drawHostEntry(Graphics2D g2) {
         drawBg(g2);
-        g2.setFont(new Font("Arial", Font.BOLD, 58)); centered(g2, "Join Server - Step 2/2", 200);
-        g2.setFont(new Font("Arial", Font.BOLD, 26));
-        centered(g2, "Name: " + nameInput, 310);
+        g2.setFont(new Font("Arial", Font.BOLD, 58));  centered(g2, "Join Server - Step 2/2", 200);
+        g2.setFont(new Font("Arial", Font.BOLD, 26));  centered(g2, "Name: " + nameInput, 310);
         g2.setFont(new Font("Arial", Font.PLAIN, 30)); centered(g2, "Enter server IP address:", 370);
         drawInputBox(g2, hostInput.toString(), 420);
         g2.setFont(new Font("Arial", Font.ITALIC, 22)); centered(g2, "(leave blank for localhost)", 510);
-        g2.setFont(new Font("Arial", Font.PLAIN, 20)); centered(g2, "[ ENTER ] connect    [ ESC ] back", 630);
+        g2.setFont(new Font("Arial", Font.PLAIN, 20));  centered(g2, "[ ENTER ] connect    [ ESC ] back", 630);
         drawError(g2, 680);
     }
 
     private void drawInputBox(Graphics2D g2, String text, int y) {
         int bw=500, bh=50, bx=(getWidth()-bw)/2;
-        g2.setColor(new Color(0,0,0,160)); g2.fillRoundRect(bx,y-35,bw,bh,10,10);
-        g2.setColor(Color.WHITE); g2.setStroke(new BasicStroke(2)); g2.drawRoundRect(bx,y-35,bw,bh,10,10);
+        g2.setColor(new Color(0,0,0,160)); g2.fillRoundRect(bx, y-35, bw, bh, 10, 10);
+        g2.setColor(Color.WHITE); g2.setStroke(new BasicStroke(2)); g2.drawRoundRect(bx, y-35, bw, bh, 10, 10);
         String display = text + (frameCount%40<20 ? "|" : "");
         g2.setFont(new Font("Monospaced", Font.PLAIN, 26));
         g2.setColor(Color.WHITE); g2.drawString(display, bx+15, y);
@@ -502,8 +575,6 @@ public class GamePanel extends JPanel implements ActionListener {
         drawBg(g2);
         g2.setFont(new Font("Arial", Font.BOLD, 58)); centered(g2, "Multiplayer Lobby", 150);
 
-        // Host shows their own IP (so others know what to connect to).
-        // Joining clients show the server's address they connected to.
         try {
             String ip = isHost
                     ? InetAddress.getLocalHost().getHostAddress()
@@ -518,7 +589,7 @@ public class GamePanel extends JPanel implements ActionListener {
         g2.setFont(new Font("Arial", Font.BOLD, 28)); centered(g2, "Players:", 250);
 
         int ly = 285;
-        for (int i=0; i<lobbyList.size(); i++) {
+        for (int i = 0; i < lobbyList.size(); i++) {
             String pn = lobbyList.get(i);
             boolean isH = netClient != null && pn.equals(netClient.getHostName());
             String label = "  " + pn + (isH ? "  [HOST]" : "");
@@ -531,7 +602,6 @@ public class GamePanel extends JPanel implements ActionListener {
             ly += 40;
         }
 
-        // Color picker
         String[] colorNames = {"Red","Blue","Green","Yellow","Purple","Orange"};
         g2.setFont(new Font("Arial", Font.BOLD, 22));
         centered(g2, "Your color:  [ Q ] prev    [ E ] next", 560);
@@ -560,18 +630,8 @@ public class GamePanel extends JPanel implements ActionListener {
         centered(g2, "[ ESC ] disconnect & return to menu", 690);
     }
 
-    private void drawGhost(Graphics2D g2, String name, int x, int y, Color col) {
-        g2.setColor(col);           g2.fillRect(x, y, 30, 30);
-        g2.setColor(Color.WHITE);   g2.setStroke(new BasicStroke(2)); g2.drawRect(x, y, 30, 30);
-        g2.setFont(new Font("Arial", Font.BOLD, 12));
-        FontMetrics fm = g2.getFontMetrics();
-        int lx = x + (30 - fm.stringWidth(name)) / 2;
-        g2.setColor(Color.BLACK); g2.drawString(name, lx+1, y-4);
-        g2.setColor(Color.WHITE); g2.drawString(name, lx, y-5);
-    }
-
     private void drawHUD(Graphics2D g2) {
-        long s = timeMillisLeft/1000;
+        long s = timeMillisLeft / 1000;
         String ts = String.format("%d:%02d", s/60, s%60);
         boolean urg = s < 30;
         g2.setFont(new Font("Arial", Font.BOLD, 48));
@@ -579,27 +639,27 @@ public class GamePanel extends JPanel implements ActionListener {
         int tw=fm.stringWidth(ts), th=fm.getHeight();
         int bw=tw+40, bh=th+16, bx=(getWidth()-bw)/2, by=20;
         g2.setColor(urg ? new Color(160,0,0,220) : new Color(0,0,0,180));
-        g2.fillRoundRect(bx,by,bw,bh,20,20);
+        g2.fillRoundRect(bx, by, bw, bh, 20, 20);
         g2.setStroke(new BasicStroke(2));
         g2.setColor(urg ? Color.RED : new Color(255,255,255,80));
-        g2.drawRoundRect(bx,by,bw,bh,20,20);
+        g2.drawRoundRect(bx, by, bw, bh, 20, 20);
         g2.setColor(urg ? Color.YELLOW : Color.WHITE);
         g2.drawString(ts, bx+20, by+th);
 
         if (isMultiplayer && netClient != null) {
-            int total = netClient.getRemotePositions().size()+1;
+            int total = netClient.getRemotePositions().size() + 1;
             String badge = "Players: " + total;
             g2.setFont(new Font("Arial", Font.BOLD, 22));
             FontMetrics fm2 = g2.getFontMetrics();
-            int px = getWidth()-fm2.stringWidth(badge)-30;
+            int px = getWidth() - fm2.stringWidth(badge) - 30;
             g2.setColor(new Color(0,0,0,160));
-            g2.fillRoundRect(px-8,20,fm2.stringWidth(badge)+16,fm2.getHeight()+8,10,10);
+            g2.fillRoundRect(px-8, 20, fm2.stringWidth(badge)+16, fm2.getHeight()+8, 10, 10);
             g2.setColor(Color.WHITE); g2.drawString(badge, px, 20+fm2.getAscent());
         }
     }
 
     private void drawOverlay(Graphics2D g2, String l1, String l2, Color col) {
-        g2.setColor(new Color(0,0,0,190)); g2.fillRect(0,0,getWidth(),getHeight());
+        g2.setColor(new Color(0,0,0,190)); g2.fillRect(0, 0, getWidth(), getHeight());
         g2.setFont(new Font("Arial", Font.BOLD, 68)); g2.setColor(col);
         centered(g2, l1, getHeight()/2 - 40);
         g2.setFont(new Font("Arial", Font.BOLD, 44)); g2.setColor(Color.WHITE);

@@ -7,21 +7,24 @@ import java.awt.image.BufferedImage;
 public class Ability {
 
     public enum Type {
-        STAMINA_BOOST,   // Power-up: instantly refills dash meter
-        INVISIBILITY,    // Power-up: hides player for a few seconds
-        SHIELD,          // Defensive: blocks the next trap
-        SLOW_DOWN        // Trap: slows player and removes dashes
+        // ── Affects the player who picks it up
+        STAMINA_BOOST,      // Power-up : instantly refills dash meter
+        INVISIBILITY,       // Power-up : hides self from other players
+        SHIELD,             // Defensive: blocks/cancels incoming enemy traps
+        PUDDLE,             // Self-trap : slows + removes dashes
+        // ── Affects ALL OTHER players when picked up
+        SLOW_DOWN,          // Enemy trap: slows + disables dashes of enemies
+        REVERSE_CONTROLS    // Enemy trap: reverses enemy controls for 5s
     }
 
     // Icon size in world pixels
     public static final int SIZE = 40;
 
     // How long an ability stays gone before respawning (5s @ 60fps)
-    // EDIT THIS based on the specs
     public static final int RESPAWN_TICKS = 300;
 
     public final Type type;
-    public int x, y; // top-left in world coords
+    public int x, y;              // top-left in world coords
     public boolean active = true;
     public int respawnTimer = 0;
     public final BufferedImage image;
@@ -33,7 +36,7 @@ public class Ability {
         this.image = image;
     }
 
-    // hit test against the player rectangle
+    // AABB hit test against the player rectangle
     public boolean intersects(int px, int py, int psize) {
         if (!active) return false;
         return px < x + SIZE && px + psize > x &&
@@ -48,11 +51,13 @@ public class Ability {
             // Fallback: colored circle if PNG didn't load
             Color c;
             switch (type) {
-                case STAMINA_BOOST: c = new Color(230, 220, 0);   break;
-                case INVISIBILITY:  c = new Color(180, 230, 0);   break;
-                case SHIELD:        c = new Color(120, 200, 230); break;
-                case SLOW_DOWN:     c = new Color(230, 100, 100); break;
-                default:            c = Color.WHITE;
+                case STAMINA_BOOST:     c = new Color(230, 220,   0); break;
+                case INVISIBILITY:      c = new Color(180, 230,   0); break;
+                case SHIELD:            c = new Color(120, 200, 230); break;
+                case PUDDLE:            c = new Color(100, 180,  80); break;
+                case SLOW_DOWN:         c = new Color(230, 100, 100); break;
+                case REVERSE_CONTROLS:  c = new Color(200, 100, 220); break;
+                default:                c = Color.WHITE;
             }
             g2.setColor(c);
             g2.fillOval(x, y, SIZE, SIZE);

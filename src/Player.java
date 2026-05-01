@@ -4,53 +4,51 @@ import java.util.Collections;
 
 public class Player {
 
-    // Position and size
+    // ── Position & size ────────────────────────────────────────────────────────
     public int x, y;
     public final int size = 30;
 
-    // Speed (mutable so the SLOW_DOWN trap can change it temporarily)
+    // ── Speed ─────────────────────────────────────────────────────────────────
     private static final int BASE_SPEED = 5;
     private static final int SLOW_SPEED = 2;
     public int speed = BASE_SPEED;
 
-    // Input flags
+    // ── Input flags (set by GamePanel key bindings) ────────────────────────────
     public boolean upPressed, downPressed, leftPressed, rightPressed;
     public boolean dashPressed;
 
-    // Visual identity
+    // ── Visual identity ────────────────────────────────────────────────────────
     private Color fillColor;
     private Color borderColor;
     public String name;
 
-    // --- Dash System ---
+    // ── Dash system ───────────────────────────────────────────────────────────
     private static final int MAX_DASH_BARS       = 3;
     private static final int DASH_DISTANCE       = 120;
     private static final int DASH_SPEED          = 20;
     private static final int DASH_RECHARGE_TICKS = 180;
 
     private int dashBars = MAX_DASH_BARS;
-
-    // Each entry is an independent timer for one spent dash.
-    // Highest timer = spent earliest = recharges first.
     private ArrayList<Integer> rechargeQueue = new ArrayList<>();
+    private boolean isDashing     = false;
+    private int     dashRemaining = 0;
+    private int     dashDirX = 0, dashDirY = 0;
 
-    private boolean isDashing = false;
-    private int dashRemaining = 0;
-    private int dashDirX = 0;
-    private int dashDirY = 0;
+    // Last actual movement direction (used as dash fallback). Default: down.
+    private int lastDirX = 0, lastDirY = 1;
 
-    // Last known movement direction — default: facing down
-    private int lastDirX = 0;
-    private int lastDirY = 1;
+    // ── Ability timers ────────────────────────────────────────────────────────
+    private static final int INVISIBILITY_TICKS = 300; // 5s  @ 60fps
+    private static final int SHIELD_TICKS_MAX   = 600; // 10s @ 60fps
+    private static final int PUDDLE_TICKS_MAX   = 300; // 5s  — ground trap (shield does NOT block)
+    private static final int SLOW_TICKS_MAX     = 300; // 5s  — enemy-applied slow (shield DOES block)
+    private static final int REVERSE_TICKS_MAX  = 300; // 5s  — enemy-applied reverse (shield DOES block)
 
-    // --- Ability state ---
-    private static final int INVISIBILITY_TICKS = 300; // 5s @ 60fps
-    private static final int SLOW_TICKS         = 300; // 5s @ 60fps
-    private static final int SHIELD_TICKS       = 600; // 10s @ 60fps
-
-    private int invisibleTicks = 0;   // > 0 = invisible
-    private int slowedTicks    = 0;   // > 0 = slowed
-    private int shieldTicks    = 0;   // > 0 = shield up
+    private int invisibleTicks       = 0;
+    private int shieldTicks          = 0;
+    private int puddleTicks          = 0;  // from stepping on a Puddle ground pickup
+    private int slowedTicks          = 0;  // from an enemy using Slow-Down against you
+    private int reverseControlsTicks = 0;  // from an enemy using Reverse Controls against you
 
     public Player(int startX, int startY, Color fillColor, Color borderColor, String name) {
         this.x           = startX;
@@ -60,20 +58,32 @@ public class Player {
         this.name        = name;
     }
 
+    // ── Main update (called once per game tick) ────────────────────────────────
     public void update(int[][] mapLayout) {
 
-        // --- Tick ability timers ---
-        if (invisibleTicks > 0) invisibleTicks--;
-        if (slowedTicks    > 0) slowedTicks--;
-        if (shieldTicks    > 0) shieldTicks--;
+        // ── Tick all timers ────────────────────────────────────────────────────
+        if (invisibleTicks       > 0) invisibleTicks--;
+        if (shieldTicks          > 0) shieldTicks--;
+        if (reverseControlsTicks > 0) reverseControlsTicks--;
 
-        // Speed reflects current slow status
-        speed = (slowedTicks > 0) ? SLOW_SPEED : BASE_SPEED;
+        boolean wasPuddle = puddleTicks > 0;
+        boolean wasSlowed = slowedTicks > 0;
+        if (puddleTicks > 0) puddleTicks--;
+        if (slowedTicks > 0) slowedTicks--;
 
-        // While slowed, dashes do NOT recharge.
-        // Once slow ends, recharge resumes from where it left off so dashing
-        // continues to work normally for the rest of the game.
-        if (slowedTicks == 0 && !rechargeQueue.isEmpty()) {
+        boolean isSlowNow = puddleTicks > 0 || slowedTicks > 0;
+
+        // When ALL slow effects just expired → restore full dashes
+        if ((wasPuddle || wasSlowed) && !isSlowNow) {
+            dashBars = MAX_DASH_BARS;
+            rechargeQueue.clear();
+        }
+
+        // ── Speed ─────────────────────────────────────────────────────────────
+        speed = isSlowNow ? SLOW_SPEED : BASE_SPEED;
+
+        // ── Dash recharge (paused while any slow is active) ────────────────────
+        if (!isSlowNow && !rechargeQueue.isEmpty()) {
             rechargeQueue.sort(Collections.reverseOrder());
             rechargeQueue.set(0, rechargeQueue.get(0) + 1);
             if (rechargeQueue.get(0) >= DASH_RECHARGE_TICKS) {
@@ -82,57 +92,62 @@ public class Player {
             }
         }
 
-        // Initiate dash on space press (disabled while slowed)
-        if (dashPressed && !isDashing && dashBars > 0 && slowedTicks == 0) {
+        // ── Resolve effective movement directions (reversed controls) ─────────
+        boolean rev = reverseControlsTicks > 0;
+        boolean mu = rev ? downPressed  : upPressed;
+        boolean md = rev ? upPressed    : downPressed;
+        boolean ml = rev ? rightPressed : leftPressed;
+        boolean mr = rev ? leftPressed  : rightPressed;
+
+        // ── Dash initiation (disabled while any slow is active) ───────────────
+        if (dashPressed && !isDashing && dashBars > 0 && !isSlowNow) {
             isDashing     = true;
             dashRemaining = DASH_DISTANCE;
             dashBars--;
 
-            dashDirX = 0;
-            dashDirY = 0;
-            if (upPressed)    dashDirY = -1;
-            if (downPressed)  dashDirY =  1;
-            if (leftPressed)  dashDirX = -1;
-            if (rightPressed) dashDirX =  1;
+            // Dash direction from current effective keys
+            dashDirX = 0; dashDirY = 0;
+            if (mu) dashDirY = -1;
+            if (md) dashDirY =  1;
+            if (ml) dashDirX = -1;
+            if (mr) dashDirX =  1;
+            // Fallback: last actual movement direction
             if (dashDirX == 0 && dashDirY == 0) {
                 dashDirX = lastDirX;
                 dashDirY = lastDirY;
             }
-
             rechargeQueue.add(0);
         }
-        // Always consume the dash key press so it doesn't queue up
         dashPressed = false;
 
-        // Execute dash
+        // ── Execute dash ──────────────────────────────────────────────────────
         if (isDashing) {
             int step  = Math.min(DASH_SPEED, dashRemaining);
             int moved = moveDash(step, mapLayout);
             dashRemaining -= moved;
             if (dashRemaining <= 0 || moved == 0) {
-                isDashing     = false;
-                dashRemaining = 0;
+                isDashing = false; dashRemaining = 0;
             }
             return;
         }
 
-        // Normal movement + track last direction
-        if (upPressed) {
+        // ── Normal movement using effective directions ────────────────────────
+        if (mu) {
             y -= speed;
             if (isColliding(x, y, mapLayout)) y += speed;
             else { lastDirX = 0; lastDirY = -1; }
         }
-        if (downPressed) {
+        if (md) {
             y += speed;
             if (isColliding(x, y, mapLayout)) y -= speed;
             else { lastDirX = 0; lastDirY = 1; }
         }
-        if (leftPressed) {
+        if (ml) {
             x -= speed;
             if (isColliding(x, y, mapLayout)) x += speed;
             else { lastDirX = -1; lastDirY = 0; }
         }
-        if (rightPressed) {
+        if (mr) {
             x += speed;
             if (isColliding(x, y, mapLayout)) x -= speed;
             else { lastDirX = 1; lastDirY = 0; }
@@ -142,12 +157,9 @@ public class Player {
     private int moveDash(int step, int[][] mapLayout) {
         int moved = 0;
         for (int i = 0; i < step; i++) {
-            int nextX = x + dashDirX;
-            int nextY = y + dashDirY;
-            if (isColliding(nextX, nextY, mapLayout)) break;
-            x = nextX;
-            y = nextY;
-            moved++;
+            int nx = x + dashDirX, ny = y + dashDirY;
+            if (isColliding(nx, ny, mapLayout)) break;
+            x = nx; y = ny; moved++;
         }
         return moved;
     }
@@ -156,87 +168,109 @@ public class Player {
     public int getCenterRow() { return (y + size / 2) / 40; }
 
     private boolean isColliding(int px, int py, int[][] mapLayout) {
-        int leftCol   = px / 40;
-        int rightCol  = (px + size - 1) / 40;
-        int topRow    = py / 40;
-        int bottomRow = (py + size - 1) / 40;
-
-        if (leftCol < 0 || rightCol >= mapLayout[0].length ||
-                topRow  < 0 || bottomRow >= mapLayout.length) return true;
-
-        int tl = mapLayout[topRow][leftCol];
-        int tr = mapLayout[topRow][rightCol];
-        int bl = mapLayout[bottomRow][leftCol];
-        int br = mapLayout[bottomRow][rightCol];
-
-        return tl == 6 || tl == 1 || tr == 6 || tr == 1 ||
-                bl == 6 || bl == 1 || br == 6 || br == 1;
+        int lc = px / 40, rc = (px + size - 1) / 40;
+        int tr = py / 40, br = (py + size - 1) / 40;
+        if (lc < 0 || rc >= mapLayout[0].length || tr < 0 || br >= mapLayout.length) return true;
+        int tl = mapLayout[tr][lc], top = mapLayout[tr][rc];
+        int bl = mapLayout[br][lc], bot = mapLayout[br][rc];
+        return tl==6||tl==1 || top==6||top==1 || bl==6||bl==1 || bot==6||bot==1;
     }
 
-    // -------- Ability effects (called by AbilityManager) --------
+    // ── Ability effects ───────────────────────────────────────────────────────
 
-    // Power-up: STAMINA BOOST
-    // instantly refill dash meter and clear active recharges.
+    /** Power-up: instantly refills dash meter. */
     public void applyStaminaBoost() {
         dashBars = MAX_DASH_BARS;
         rechargeQueue.clear();
     }
 
-    // Power-up: INVISIBILITY
-    // become hidden for 5 seconds
+    /** Power-up: makes this player invisible to enemies for 5s. */
     public void applyInvisibility() {
         invisibleTicks = INVISIBILITY_TICKS;
     }
 
-    // DEFENSIVE: SHIELD
-    // A 10-second shield. The shield ONLY interacts with traps (currently SLOW_DOWN only).
-    // Other power-ups (Stamina Boost, Invisibility) apply normally and leave the shield untouched.
-
-    // If the player is currently slowed when they pick up the
-    // shield, the shield instantly removes the slow-down and is consumed.
+    /**
+     * Defensive: arms a 10-second shield.
+     * Also immediately cancels any ENEMY traps currently active (slow or reverse).
+     * Does NOT cancel Puddle (ground trap — not from an enemy).
+     */
     public void applyShield() {
         if (slowedTicks > 0) {
-            // Shield meets active slow-down trap — both are consumed,
-            // player is back to normal immediately.
             slowedTicks = 0;
-            shieldTicks = 0;
-            return;
+            if (puddleTicks == 0) { dashBars = MAX_DASH_BARS; rechargeQueue.clear(); }
         }
-        shieldTicks = SHIELD_TICKS;
+        if (reverseControlsTicks > 0) reverseControlsTicks = 0;
+        shieldTicks = SHIELD_TICKS_MAX;
     }
 
+    /**
+     * Self-trap (PUDDLE ground pickup): slows this player + removes dashes for 5s.
+     * Shield does NOT block this — Puddle is a ground-level hazard, not an enemy ability.
+     */
+    public void applyPuddle() {
+        puddleTicks = PUDDLE_TICKS_MAX;
+        dashBars = 0;
+        rechargeQueue.clear();
+    }
 
-    // TRAP: SLOW DOWN
-    // slow player for 5 seconds (and disable dashing during that time).
-    // If the shield is up, the shield absorbs the trap and is consumed:
-    // the player is NOT slowed, and the dash meter is unaffected.
+    /**
+     * Enemy trap (SLOW DOWN): applied when an enemy uses the Slow-Down icon against you.
+     * Slows this player + removes dashes for 5s. Shield blocks and is consumed.
+     */
     public void applySlowDown() {
-        if (shieldTicks > 0) {
-            // Shield blocks the trap; both are consumed
-            shieldTicks = 0;
-            return;
-        }
-        slowedTicks = SLOW_TICKS;
+        if (shieldTicks > 0) { shieldTicks = 0; return; }
+        slowedTicks = SLOW_TICKS_MAX;
+        dashBars = 0;
+        rechargeQueue.clear();
     }
 
+    /**
+     * Enemy trap (REVERSE CONTROLS): applied when an enemy uses the Reverse Controls icon.
+     * Reverses this player's movement for 5s. Shield blocks and is consumed.
+     */
+    public void applyReverseControls() {
+        if (shieldTicks > 0) { shieldTicks = 0; return; }
+        reverseControlsTicks = REVERSE_TICKS_MAX;
+    }
+
+    // ── State queries ─────────────────────────────────────────────────────────
     public boolean isInvisible()    { return invisibleTicks > 0; }
     public boolean isShieldActive() { return shieldTicks > 0; }
-    public boolean isSlowed()       { return slowedTicks > 0; }
+    public boolean isSlowed()       { return puddleTicks > 0 || slowedTicks > 0; }
+    public boolean isPuddled()      { return puddleTicks > 0; }
+    public boolean isEnemySlowed()  { return slowedTicks > 0; }
+    public boolean isReversed()     { return reverseControlsTicks > 0; }
 
-    // -------- Drawing --------
+    /**
+     * Compact ability-state bitmask for network transmission (POS/STATE packets).
+     *   Bit 0 (1): shield active
+     *   Bit 1 (2): invisible
+     *   Bit 2 (4): slowed (puddle and/or enemy slow)
+     *   Bit 3 (8): reversed controls
+     */
+    public int getAbilityFlags() {
+        int f = 0;
+        if (isShieldActive()) f |= 1;
+        if (isInvisible())    f |= 2;
+        if (isSlowed())       f |= 4;
+        if (isReversed())     f |= 8;
+        return f;
+    }
+
+    // ── Draw (local player only — ghosts are drawn in GamePanel.drawGhost) ──────
     public void draw(Graphics2D g2) {
-        // If invisible, draw the player translucent so the local player
-        // can still see themselves, pure invisiblity will be implemented in Milestone 2
-        java.awt.Composite oldComposite = g2.getComposite();
+
+        // Invisible: draw at 30% opacity so the local player can still see themselves
+        java.awt.Composite oldC = g2.getComposite();
         if (isInvisible()) {
             g2.setComposite(java.awt.AlphaComposite.getInstance(
                     java.awt.AlphaComposite.SRC_OVER, 0.30f));
         }
 
-        // Player body
+        // Body
         Color body = fillColor;
-        if (isDashing)      body = body.brighter();
-        if (isSlowed())     body = new Color(120, 160, 220); // bluish while slowed
+        if (isDashing)  body = body.brighter();
+        if (isSlowed()) body = new Color(120, 160, 220);
 
         g2.setColor(body);
         g2.fillRect(x, y, size, size);
@@ -244,103 +278,86 @@ public class Player {
         g2.setStroke(new BasicStroke(2));
         g2.drawRect(x, y, size, size);
 
-        // Restore composite before drawing UI (name + dash bar + shield ring)
-        g2.setComposite(oldComposite);
+        g2.setComposite(oldC);
 
-        // Shield ring around the player + countdown label
+        // ── Status tags above the player ──────────────────────────────────────
+        int tagY = y - 18;
+
         if (isShieldActive()) {
             g2.setColor(new Color(120, 200, 230));
             g2.setStroke(new BasicStroke(3));
             int pad = 5;
             g2.drawOval(x - pad, y - pad, size + pad * 2, size + pad * 2);
             g2.setStroke(new BasicStroke(1));
-
-            g2.setFont(new Font("Arial", Font.BOLD, 10));
-            String tag = "SHIELD " + ((shieldTicks + 59) / 60) + "s";
-            FontMetrics fm = g2.getFontMetrics();
-            int tx = x + (size - fm.stringWidth(tag)) / 2;
-            int ty = y - 18;
-            g2.setColor(Color.BLACK);
-            g2.drawString(tag, tx + 1, ty + 1);
-            g2.setColor(new Color(120, 200, 230));
-            g2.drawString(tag, tx, ty);
+            drawTag(g2, "SHIELD " + ((shieldTicks + 59) / 60) + "s",
+                    new Color(120, 200, 230), x, tagY);
+            tagY -= 12;
         }
-
-        // Slow indicator — small text under the dash bar
-        if (isSlowed()) {
-            g2.setFont(new Font("Arial", Font.BOLD, 10));
-            String tag = "SLOW " + ((slowedTicks + 59) / 60) + "s";
-            FontMetrics fm = g2.getFontMetrics();
-            int tx = x + (size - fm.stringWidth(tag)) / 2;
-            int ty = y - 18;
-            g2.setColor(Color.BLACK);
-            g2.drawString(tag, tx + 1, ty + 1);
-            g2.setColor(new Color(120, 160, 220));
-            g2.drawString(tag, tx, ty);
+        if (isPuddled()) {
+            drawTag(g2, "PUDDLE " + ((puddleTicks + 59) / 60) + "s",
+                    new Color(100, 180, 80), x, tagY);
+            tagY -= 12;
         }
-
-        // Invisibility countdown — small text above name
+        if (isEnemySlowed()) {
+            drawTag(g2, "SLOW " + ((slowedTicks + 59) / 60) + "s",
+                    new Color(120, 160, 220), x, tagY);
+            tagY -= 12;
+        }
+        if (isReversed()) {
+            drawTag(g2, "REV " + ((reverseControlsTicks + 59) / 60) + "s",
+                    new Color(200, 100, 220), x, tagY);
+            tagY -= 12;
+        }
         if (isInvisible()) {
-            g2.setFont(new Font("Arial", Font.BOLD, 10));
-            String tag = "HIDDEN " + ((invisibleTicks + 59) / 60) + "s";
-            FontMetrics fm = g2.getFontMetrics();
-            int tx = x + (size - fm.stringWidth(tag)) / 2;
-            int ty = y - 30;
-            g2.setColor(Color.BLACK);
-            g2.drawString(tag, tx + 1, ty + 1);
-            g2.setColor(new Color(180, 230, 0));
-            g2.drawString(tag, tx, ty);
+            drawTag(g2, "HIDDEN " + ((invisibleTicks + 59) / 60) + "s",
+                    new Color(180, 230, 0), x, tagY);
         }
 
-        // Name label above player
+        // Name label
         if (name != null && !name.isEmpty()) {
             g2.setFont(new Font("Arial", Font.BOLD, 12));
             FontMetrics fm = g2.getFontMetrics();
             int lx = x + (size - fm.stringWidth(name)) / 2;
-            int ly = y - 5;
-            g2.setColor(Color.BLACK);
-            g2.drawString(name, lx + 1, ly + 1);
-            g2.setColor(Color.WHITE);
-            g2.drawString(name, lx, ly);
+            g2.setColor(Color.BLACK); g2.drawString(name, lx + 1, y - 4);
+            g2.setColor(Color.WHITE); g2.drawString(name, lx, y - 5);
         }
 
-        // --- Single unified dash bar ---
-        // The bar is split into thirds by divider lines.
-        // Each third represents one dash charge.
-        // Filled (bright blue) = charged, partial (dark blue) = recharging, dark = empty.
-        int barW  = size + 10;
-        int barH  = 6;
-        int barX  = x + (size - barW) / 2;
-        int barY  = y + size + 6;
-        int segW  = barW / MAX_DASH_BARS;
+        // ── Dash bar ──────────────────────────────────────────────────────────
+        int barW = size + 10;
+        int barH = 6;
+        int barX = x + (size - barW) / 2;
+        int barY = y + size + 6;
+        int segW = barW / MAX_DASH_BARS;
 
-        // Background
         g2.setColor(new Color(40, 40, 40));
         g2.fillRect(barX, barY, barW, barH);
 
-        // Fully charged segments
         for (int i = 0; i < dashBars; i++) {
             g2.setColor(new Color(80, 180, 255));
             g2.fillRect(barX + i * segW, barY, segW, barH);
         }
 
-        // Partial recharge on the next empty segment (uses the highest queued timer)
-        if (!rechargeQueue.isEmpty() && slowedTicks == 0) {
+        if (!rechargeQueue.isEmpty() && !isSlowed()) {
             int highest  = Collections.max(rechargeQueue);
             int partialW = (int)((double) highest / DASH_RECHARGE_TICKS * segW);
             g2.setColor(new Color(40, 100, 180));
             g2.fillRect(barX + dashBars * segW, barY, partialW, barH);
         }
 
-        // Divider lines between thirds
         g2.setColor(new Color(30, 120, 200));
-        for (int i = 1; i < MAX_DASH_BARS; i++) {
+        for (int i = 1; i < MAX_DASH_BARS; i++)
             g2.fillRect(barX + i * segW, barY, 1, barH);
-        }
 
-        // Outline
-        g2.setColor(new Color(30, 120, 200));
         g2.setStroke(new BasicStroke(1));
         g2.drawRect(barX, barY, barW, barH);
+    }
+
+    /** Small shadow-backed colored label above the player. */
+    private void drawTag(Graphics2D g2, String text, Color col, int px, int py) {
+        g2.setFont(new Font("Arial", Font.BOLD, 10));
+        FontMetrics fm = g2.getFontMetrics();
+        int tx = px + (size - fm.stringWidth(text)) / 2;
+        g2.setColor(Color.BLACK);  g2.drawString(text, tx + 1, py + 1);
+        g2.setColor(col);          g2.drawString(text, tx,     py);
     }
 }
