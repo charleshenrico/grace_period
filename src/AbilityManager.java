@@ -6,40 +6,49 @@ import java.util.List;
 import java.util.Random;
 
 public class AbilityManager {
+
     private static final int TILE_SIZE = 40;
 
-    private static final int N_STAMINA      = 4;
-    private static final int N_INVISIBILITY = 3;
-    private static final int N_SHIELD       = 3;
-    private static final int N_SLOW_DOWN    = 5;
+    // Counts per ability type on the map at once
+    private static final int N_STAMINA          = 4;
+    private static final int N_INVISIBILITY     = 3;
+    private static final int N_SHIELD           = 3;
+    private static final int N_PUDDLE           = 5;   // self-trap (ground)
+    private static final int N_SLOW_DOWN        = 3;   // enemy trap
+    private static final int N_REVERSE_CONTROLS = 3;   // enemy trap
+
     private static final int MIN_SPACING_TILES = 3;
 
     private final int[][] mapLayout;
     private final List<Ability> abilities = new ArrayList<>();
     private final Random rng;
 
-    private BufferedImage staminaImage, invisibilityImage, shieldImage, slowDownImage;
+    // When false, enemy-trap abilities are not spawned
+    private final boolean multiplayer;
+
+    private BufferedImage staminaImage, invisibilityImage, shieldImage, puddleImage, slowDownImage, reverseImage;
     private GamePanel panel;
 
     // Cooldowns for the UPLB Landmarks so they don't trigger 60x a second
     private long towerCD, libraryCD, obleCD, carillonCD;
 
     // --- MERGED CONSTRUCTORS ---
-    // Standard constructor for local play
-    public AbilityManager(int[][] mapLayout, GamePanel panel) {
-        this(mapLayout, panel, System.currentTimeMillis());
+    
+    // Fallback constructor if GamePanel doesn't pass the multiplayer boolean
+    public AbilityManager(int[][] mapLayout, GamePanel panel, long seed) {
+        this(mapLayout, panel, seed, false);
     }
 
-    // Seeded constructor for Network play (ensures all clients spawn items in the exact same spots)
-    public AbilityManager(int[][] mapLayout, GamePanel panel, long seed) {
+    public AbilityManager(int[][] mapLayout, GamePanel panel, long seed, boolean multiplayer) {
         this.mapLayout = mapLayout;
         this.panel = panel;
+        this.multiplayer = multiplayer;
         this.rng = new Random(seed);
         loadImages();
         spawnInitial();
     }
 
-    // --- MERGED IMAGE LOADING (Safer Network Fallbacks) ---
+    // --- MERGED IMAGE LOADING ---
     private BufferedImage loadImage(String name) {
         try {
             java.io.InputStream is = getClass().getResourceAsStream("/" + name);
@@ -51,23 +60,27 @@ public class AbilityManager {
     }
 
     private void loadImages() {
-        try {
-            staminaImage      = loadImage("Stamina-Boost.png");
-            invisibilityImage = loadImage("Invisibility.png");
-            shieldImage       = loadImage("Shield.png");
-            slowDownImage     = loadImage("Slow-Down.png");
-        } catch (Exception e) {
+        staminaImage      = loadImage("Stamina-Boost.png");
+        invisibilityImage = loadImage("Invisibility.png");
+        shieldImage       = loadImage("Shield.png");
+        puddleImage       = loadImage("Puddle.png");
+        slowDownImage     = loadImage("Slow-Down.png");
+        reverseImage      = loadImage("Reverse.png");
+        
+        if (staminaImage == null) {
             System.out.println("Notice: Some ability icons missing in 'res' folder. Using colored circles.");
         }
     }
 
     private BufferedImage imageFor(Ability.Type t) {
         switch (t) {
-            case STAMINA_BOOST: return staminaImage;
-            case INVISIBILITY:  return invisibilityImage;
-            case SHIELD:        return shieldImage;
-            case SLOW_DOWN:     return slowDownImage;
-            default:            return null;
+            case STAMINA_BOOST:    return staminaImage;
+            case INVISIBILITY:     return invisibilityImage;
+            case SHIELD:           return shieldImage;
+            case PUDDLE:           return puddleImage;
+            case SLOW_DOWN:        return slowDownImage;
+            case REVERSE_CONTROLS: return reverseImage;
+            default:               return null;
         }
     }
 
@@ -75,7 +88,13 @@ public class AbilityManager {
         for (int i = 0; i < N_STAMINA;      i++) spawnNew(Ability.Type.STAMINA_BOOST);
         for (int i = 0; i < N_INVISIBILITY; i++) spawnNew(Ability.Type.INVISIBILITY);
         for (int i = 0; i < N_SHIELD;       i++) spawnNew(Ability.Type.SHIELD);
-        for (int i = 0; i < N_SLOW_DOWN;    i++) spawnNew(Ability.Type.SLOW_DOWN);
+        for (int i = 0; i < N_PUDDLE;       i++) spawnNew(Ability.Type.PUDDLE);
+        
+        // Enemy-trap abilities are useless in single-player
+        if (multiplayer) {
+            for (int i = 0; i < N_SLOW_DOWN;        i++) spawnNew(Ability.Type.SLOW_DOWN);
+            for (int i = 0; i < N_REVERSE_CONTROLS; i++) spawnNew(Ability.Type.REVERSE_CONTROLS);
+        }
     }
 
     private void spawnNew(Ability.Type type) {
@@ -124,7 +143,6 @@ public class AbilityManager {
     }
 
     // --- MERGED UPDATE LOGIC ---
-    // Returns index of ability picked up this tick (for server sync), or -1 if none
     public int update(Player player) {
         int pickedUpIndex = -1;
 
@@ -133,7 +151,7 @@ public class AbilityManager {
             Ability a = abilities.get(i);
             if (a.active) {
                 if (a.intersects(player.x, player.y, player.size)) {
-                    applyEffect(a, player);
+                    applyLocalEffect(a, player);
                     a.active = false;
                     a.respawnTimer = 0;
                     pickedUpIndex = i; // Save the index to return it to GamePanel
@@ -177,21 +195,31 @@ public class AbilityManager {
         return pickedUpIndex; // Returns to GamePanel so it can tell the Server
     }
 
+    /** Apply the ability effect to the LOCAL player (only for self-targeting abilities). */
+    private void applyLocalEffect(Ability a, Player player) {
+        switch (a.type) {
+            // Note: Make sure Player.java has applyPuddle() method!
+            case STAMINA_BOOST:    player.applyStaminaBoost(); break;
+            case INVISIBILITY:     player.applyInvisibility(); break;
+            case SHIELD:           player.applyShield();       break;
+            //case PUDDLE:           player.applyPuddle();       break; 
+            case SLOW_DOWN:        /* handled via network */ break;
+            case REVERSE_CONTROLS: /* handled via network */ break;
+        }
+    }
+
+    /** Returns the type of the ability at the given index (valid even after pickup). */
+    public Ability.Type getAbilityType(int index) {
+        if (index >= 0 && index < abilities.size()) return abilities.get(index).type;
+        return null;
+    }
+
     // --- NETWORK LOGIC: Called when server tells us someone else grabbed an item ---
     public void remoteRemove(int index) {
         if (index >= 0 && index < abilities.size()) {
             Ability a = abilities.get(index);
             a.active = false;
             a.respawnTimer = 0;
-        }
-    }
-
-    private void applyEffect(Ability a, Player player) {
-        switch (a.type) {
-            case STAMINA_BOOST: player.applyStaminaBoost(); break;
-            case INVISIBILITY:  player.applyInvisibility();  break;
-            case SHIELD:        player.applyShield();        break;
-            case SLOW_DOWN:     player.applySlowDown();      break;
         }
     }
 
