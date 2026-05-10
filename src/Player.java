@@ -22,12 +22,15 @@ public class Player {
     private Color borderColor;
     public String name;
 
+    // --- UPLB Powerup Timers (From Main) ---
+    public long towerSpeedEndTime = 0;
+    public long libraryGhostEndTime = 0;
+
     // ── Dash system ───────────────────────────────────────────────────────────
     private static final int MAX_DASH_BARS       = 3;
     private static final int DASH_DISTANCE       = 120;
     private static final int DASH_SPEED          = 20;
     private static final int DASH_RECHARGE_TICKS = 180;
-
     private int dashBars = MAX_DASH_BARS;
     private ArrayList<Integer> rechargeQueue = new ArrayList<>();
     private boolean isDashing     = false;
@@ -37,7 +40,7 @@ public class Player {
     // Last actual movement direction (used as dash fallback). Default: down.
     private int lastDirX = 0, lastDirY = 1;
 
-    // ── Ability timers ────────────────────────────────────────────────────────
+    // ── Ability timers (From Multiplayer) ──────────────────────────────────────
     private static final int INVISIBILITY_TICKS = 300; // 5s  @ 60fps
     private static final int SHIELD_TICKS_MAX   = 600; // 10s @ 60fps
     private static final int PUDDLE_TICKS_MAX   = 300; // 5s  — ground trap (shield does NOT block)
@@ -51,15 +54,30 @@ public class Player {
     private int reverseControlsTicks = 0;  // from an enemy using Reverse Controls against you
 
     public Player(int startX, int startY, Color fillColor, Color borderColor, String name) {
-        this.x           = startX;
-        this.y           = startY;
-        this.fillColor   = fillColor;
+        this.x = startX;
+        this.y = startY;
+        this.fillColor = fillColor;
         this.borderColor = borderColor;
-        this.name        = name;
+        this.name = name;
     }
 
     // ── Main update (called once per game tick) ────────────────────────────────
     public void update(int[][] mapLayout) {
+        long now = System.currentTimeMillis();
+
+        // ==========================================
+        // SMART GHOST ESCAPE LOGIC (Main branch feature)
+        // If the library timer is officially over, but we are still inside a wall...
+        // ==========================================
+        if (now > libraryGhostEndTime && libraryGhostEndTime != 0) {
+            if (isPhysicallyInWall(this.x, this.y, mapLayout)) {
+                // We are stuck! Secretly keep ghost mode alive for 0.1s so we can walk out
+                libraryGhostEndTime = now + 100;
+            } else {
+                // We are safely standing on a path. Turn off ghost mode completely.
+                libraryGhostEndTime = 0;
+            }
+        }
 
         // ── Tick all timers ────────────────────────────────────────────────────
         if (invisibleTicks       > 0) invisibleTicks--;
@@ -79,8 +97,14 @@ public class Player {
             rechargeQueue.clear();
         }
 
-        // ── Speed ─────────────────────────────────────────────────────────────
-        speed = isSlowNow ? SLOW_SPEED : BASE_SPEED;
+        // ── Speed (Merged Logic) ───────────────────────────────────────────────
+        if (isSlowNow) {
+            speed = SLOW_SPEED; // Traps take highest priority
+        } else if (now < towerSpeedEndTime) {
+            speed = BASE_SPEED * 2; // Tower Speed takes second priority
+        } else {
+            speed = BASE_SPEED;
+        }
 
         // ── Dash recharge (paused while any slow is active) ────────────────────
         if (!isSlowNow && !rechargeQueue.isEmpty()) {
@@ -116,6 +140,7 @@ public class Player {
                 dashDirX = lastDirX;
                 dashDirY = lastDirY;
             }
+
             rechargeQueue.add(0);
         }
         dashPressed = false;
@@ -167,13 +192,35 @@ public class Player {
     public int getCenterCol() { return (x + size / 2) / 40; }
     public int getCenterRow() { return (y + size / 2) / 40; }
 
+    // STRICT PHYSICAL CHECK: Are we touching a wall tile?
+    private boolean isPhysicallyInWall(int px, int py, int[][] mapLayout) {
+        int leftCol   = px / 40;
+        int rightCol  = (px + size - 1) / 40;
+        int topRow    = py / 40;
+        int bottomRow = (py + size - 1) / 40;
+
+        if (leftCol < 0 || rightCol >= mapLayout[0].length ||
+                topRow  < 0 || bottomRow >= mapLayout.length) return true;
+
+        int tl = mapLayout[topRow][leftCol];
+        int tr = mapLayout[topRow][rightCol];
+        int bl = mapLayout[bottomRow][leftCol];
+        int br = mapLayout[bottomRow][rightCol];
+
+        // 1 = Tree, 6 = Wall
+        return tl == 6 || tl == 1 || tr == 6 || tr == 1 ||
+                bl == 6 || bl == 1 || br == 6 || br == 1;
+    }
+
+    // MAIN COLLISION CHECK
     private boolean isColliding(int px, int py, int[][] mapLayout) {
-        int lc = px / 40, rc = (px + size - 1) / 40;
-        int tr = py / 40, br = (py + size - 1) / 40;
-        if (lc < 0 || rc >= mapLayout[0].length || tr < 0 || br >= mapLayout.length) return true;
-        int tl = mapLayout[tr][lc], top = mapLayout[tr][rc];
-        int bl = mapLayout[br][lc], bot = mapLayout[br][rc];
-        return tl==6||tl==1 || top==6||top==1 || bl==6||bl==1 || bot==6||bot==1;
+        // If the Library Ghost timer is active (or being kept alive so we can escape), ignore walls!
+        if (System.currentTimeMillis() < libraryGhostEndTime) {
+            return false;
+        }
+
+        // Otherwise, act like a normal physical object
+        return isPhysicallyInWall(px, py, mapLayout);
     }
 
     // ── Ability effects ───────────────────────────────────────────────────────
@@ -234,6 +281,7 @@ public class Player {
     }
 
     // ── State queries ─────────────────────────────────────────────────────────
+
     public boolean isInvisible()    { return invisibleTicks > 0; }
     public boolean isShieldActive() { return shieldTicks > 0; }
     public boolean isSlowed()       { return puddleTicks > 0 || slowedTicks > 0; }
@@ -260,11 +308,13 @@ public class Player {
     // ── Draw (local player only — ghosts are drawn in GamePanel.drawGhost) ──────
     public void draw(Graphics2D g2) {
 
-        // Invisible: draw at 30% opacity so the local player can still see themselves
         java.awt.Composite oldC = g2.getComposite();
-        if (isInvisible()) {
-            g2.setComposite(java.awt.AlphaComposite.getInstance(
-                    java.awt.AlphaComposite.SRC_OVER, 0.30f));
+
+        // Ghost rendering priority: Library Ghost Mode overrides normal invisibility opacity
+        if (System.currentTimeMillis() < libraryGhostEndTime) {
+            g2.setComposite(java.awt.AlphaComposite.getInstance(java.awt.AlphaComposite.SRC_OVER, 0.40f));
+        } else if (isInvisible()) {
+            g2.setComposite(java.awt.AlphaComposite.getInstance(java.awt.AlphaComposite.SRC_OVER, 0.30f));
         }
 
         // Body
@@ -286,8 +336,7 @@ public class Player {
         if (isShieldActive()) {
             g2.setColor(new Color(120, 200, 230));
             g2.setStroke(new BasicStroke(3));
-            int pad = 5;
-            g2.drawOval(x - pad, y - pad, size + pad * 2, size + pad * 2);
+            g2.drawOval(x - 5, y - 5, size + 10, size + 10);
             g2.setStroke(new BasicStroke(1));
             drawTag(g2, "SHIELD " + ((shieldTicks + 59) / 60) + "s",
                     new Color(120, 200, 230), x, tagY);
@@ -330,11 +379,11 @@ public class Player {
         int segW = barW / MAX_DASH_BARS;
 
         g2.setColor(new Color(40, 40, 40));
-        g2.fillRect(barX, barY, barW, barH);
+        g2.fillRect(barX, barY, barW, 6);
 
         for (int i = 0; i < dashBars; i++) {
             g2.setColor(new Color(80, 180, 255));
-            g2.fillRect(barX + i * segW, barY, segW, barH);
+            g2.fillRect(barX + i * segW, barY, segW, 6);
         }
 
         if (!rechargeQueue.isEmpty() && !isSlowed()) {
@@ -349,7 +398,7 @@ public class Player {
             g2.fillRect(barX + i * segW, barY, 1, barH);
 
         g2.setStroke(new BasicStroke(1));
-        g2.drawRect(barX, barY, barW, barH);
+        g2.drawRect(barX, barY, barW, 6);
     }
 
     /** Small shadow-backed colored label above the player. */

@@ -17,7 +17,6 @@ public class MazeGenerator {
 
         int[][] map = new int[actualRows][actualCols];
 
-        // Fill everything with WALLS (6) initially
         for (int r = 0; r < actualRows; r++) {
             for (int c = 0; c < actualCols; c++) {
                 map[r][c] = 6;
@@ -27,7 +26,6 @@ public class MazeGenerator {
         boolean[][] visited = new boolean[roomsY][roomsX];
         carve(0, 0, visited, map, roomsX, roomsY, new Random(seed));
 
-        // TREE (1) border edges
         for (int c = 0; c < actualCols; c++) {
             map[0][c] = 1;
             map[actualRows - 1][c] = 1;
@@ -37,34 +35,28 @@ public class MazeGenerator {
             map[r][actualCols - 1] = 1;
         }
 
-        int midC = actualCols / 2 - 4; // center the 9x9 horizontally
+        int midC = actualCols / 2 - 4;
 
-        // PHYSCI (Tile 2) — 9x9 at TOP MIDDLE (ending)
         int physciStartR = 1;
         int physciStartC = midC;
         placeLandmark(map, physciStartR, physciStartC, 2, actualRows, actualCols);
 
-        // GATE (Tile 3) — 9x9 at BOTTOM MIDDLE (starting)
-        int gateStartR = actualRows - 11; // 9 tiles + 1 border from bottom edge
+        int gateStartR = actualRows - 11;
         int gateStartC = midC;
         placeLandmark(map, gateStartR, gateStartC, 3, actualRows, actualCols);
 
-        // TOWER (Tile 7) — TOP-LEFT quadrant
         int towerStartR = Math.max(2, actualRows / 4 - 4);
         int towerStartC = Math.max(2, actualCols / 4 - 4);
         placeLandmark(map, towerStartR, towerStartC, 7, actualRows, actualCols);
 
-        // OBLE (Tile 8) — BOTTOM-RIGHT quadrant
         int obleStartR = Math.min(actualRows - 12, Math.max(2, (actualRows * 3) / 4 - 4));
         int obleStartC = Math.min(actualCols - 12, Math.max(2, (actualCols * 3) / 4 - 4));
         placeLandmark(map, obleStartR, obleStartC, 8, actualRows, actualCols);
 
-        // CARILLON (Tile 9) — TOP-RIGHT quadrant
         int carillonStartR = Math.max(2, actualRows / 4 - 4);
         int carillonStartC = Math.min(actualCols - 12, Math.max(2, (actualCols * 3) / 4 - 4));
         placeLandmark(map, carillonStartR, carillonStartC, 9, actualRows, actualCols);
 
-        // LIBRARY (Tile 10) — BOTTOM-LEFT quadrant
         int libraryStartR = Math.min(actualRows - 12, Math.max(2, (actualRows * 3) / 4 - 4));
         int libraryStartC = Math.max(2, actualCols / 4 - 4);
         placeLandmark(map, libraryStartR, libraryStartC, 10, actualRows, actualCols);
@@ -72,9 +64,7 @@ public class MazeGenerator {
         return map;
     }
 
-    // Carves a walkable ring around a 9x9 block, then stamps the landmark tile
     private static void placeLandmark(int[][] map, int startR, int startC, int tileType, int rows, int cols) {
-        // Open walkable ring (1-tile border) around the 9x9
         for (int r = startR - 1; r < startR + 11; r++) {
             for (int c = startC - 1; c < startC + 11; c++) {
                 if (r >= 1 && c >= 1 && r < rows - 1 && c < cols - 1) {
@@ -85,7 +75,6 @@ public class MazeGenerator {
                 }
             }
         }
-        // Stamp the 9x9 landmark tiles
         for (int r = startR; r < startR + 9; r++) {
             for (int c = startC; c < startC + 9; c++) {
                 if (r >= 1 && c >= 1 && r < rows - 1 && c < cols - 1) {
@@ -97,7 +86,6 @@ public class MazeGenerator {
 
     private static void carve(int x, int y, boolean[][] visited, int[][] map, int roomsX, int roomsY, Random rng) {
         visited[y][x] = true;
-
         int startR = 1 + y * 4;
         int startC = 1 + x * 4;
 
