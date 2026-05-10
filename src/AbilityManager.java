@@ -16,7 +16,7 @@ public class AbilityManager {
 
     private final int[][] mapLayout;
     private final List<Ability> abilities = new ArrayList<>();
-    private final Random rng = new Random();
+    private final Random rng;
 
     private BufferedImage staminaImage, invisibilityImage, shieldImage, slowDownImage;
     private GamePanel panel;
@@ -24,20 +24,41 @@ public class AbilityManager {
     // Cooldowns for the UPLB Landmarks so they don't trigger 60x a second
     private long towerCD, libraryCD, obleCD, carillonCD;
 
+    // --- MERGED CONSTRUCTORS ---
+    // Standard constructor for local play
     public AbilityManager(int[][] mapLayout, GamePanel panel) {
+        this(mapLayout, panel, System.currentTimeMillis());
+    }
+
+    // Seeded constructor for Network play (ensures all clients spawn items in the exact same spots)
+    public AbilityManager(int[][] mapLayout, GamePanel panel, long seed) {
         this.mapLayout = mapLayout;
         this.panel = panel;
+        this.rng = new Random(seed);
         loadImages();
         spawnInitial();
     }
 
+    // --- MERGED IMAGE LOADING (Safer Network Fallbacks) ---
+    private BufferedImage loadImage(String name) {
+        try {
+            java.io.InputStream is = getClass().getResourceAsStream("/" + name);
+            if (is != null) return ImageIO.read(is);
+        } catch (Exception ignored) {}
+        try { return ImageIO.read(new java.io.File("res/" + name)); }
+        catch (Exception ignored) {}
+        return null;
+    }
+
     private void loadImages() {
         try {
-            staminaImage      = ImageIO.read(getClass().getResourceAsStream("/Stamina-Boost.png"));
-            invisibilityImage = ImageIO.read(getClass().getResourceAsStream("/Invisibility.png"));
-            shieldImage       = ImageIO.read(getClass().getResourceAsStream("/Shield.png"));
-            slowDownImage     = ImageIO.read(getClass().getResourceAsStream("/Slow-Down.png"));
-        } catch (Exception e) {}
+            staminaImage      = loadImage("Stamina-Boost.png");
+            invisibilityImage = loadImage("Invisibility.png");
+            shieldImage       = loadImage("Shield.png");
+            slowDownImage     = loadImage("Slow-Down.png");
+        } catch (Exception e) {
+            System.out.println("Notice: Some ability icons missing in 'res' folder. Using colored circles.");
+        }
     }
 
     private BufferedImage imageFor(Ability.Type t) {
@@ -102,14 +123,21 @@ public class AbilityManager {
         a.respawnTimer = 0;
     }
 
-    public void update(Player player) {
-        // 1. Floating Abilities Logic
-        for (Ability a : abilities) {
+    // --- MERGED UPDATE LOGIC ---
+    // Returns index of ability picked up this tick (for server sync), or -1 if none
+    public int update(Player player) {
+        int pickedUpIndex = -1;
+
+        // 1. Floating Abilities Logic (Multiplayer Sync)
+        for (int i = 0; i < abilities.size(); i++) {
+            Ability a = abilities.get(i);
             if (a.active) {
                 if (a.intersects(player.x, player.y, player.size)) {
                     applyEffect(a, player);
                     a.active = false;
                     a.respawnTimer = 0;
+                    pickedUpIndex = i; // Save the index to return it to GamePanel
+                    break; // Only pick up one item per frame
                 }
             } else {
                 a.respawnTimer++;
@@ -117,34 +145,44 @@ public class AbilityManager {
             }
         }
 
-        // 2. UPLB Landmarks Logic
+        // 2. UPLB Landmarks Logic (Main branch logic)
         int r = player.getCenterRow();
         int c = player.getCenterCol();
-        if (r < 0 || r >= mapLayout.length || c < 0 || c >= mapLayout[0].length) return;
+        if (r >= 0 && r < mapLayout.length && c >= 0 && c < mapLayout[0].length) {
+            int tile = mapLayout[r][c];
+            long now = System.currentTimeMillis();
 
-        int tile = mapLayout[r][c];
-        long now = System.currentTimeMillis();
+            if (tile == 7 && now > towerCD) { // TOWER
+                player.towerSpeedEndTime = now + 5000;
+                towerCD = now + 15000;
+                System.out.println("TOWER: Speed Up!");
+            }
+            else if (tile == 10 && now > libraryCD) { // LIBRARY
+                player.libraryGhostEndTime = now + 5000;
+                libraryCD = now + 15000;
+                System.out.println("LIBRARY: Ghost Mode!");
+            }
+            else if (tile == 9 && now > carillonCD) { // CARILLON
+                panel.carillonZoomEndTime = now + 3000;
+                carillonCD = now + 15000;
+                System.out.println("CARILLON: Zoom Out!");
+            }
+            else if (tile == 8 && now > obleCD) { // OBLE
+                panel.obleFreezeEndTime = now + 5000;
+                obleCD = now + 20000;
+                System.out.println("OBLE: Time Freeze!");
+            }
+        }
 
-        if (tile == 7 && now > towerCD) { // TOWER
-            player.towerSpeedEndTime = now + 5000;
-            towerCD = now + 15000;
-            System.out.println("TOWER: Speed Up!");
-        }
-        else if (tile == 10 && now > libraryCD) { // LIBRARY
-            player.libraryGhostEndTime = now + 5000;
-            libraryCD = now + 15000;
-            System.out.println("LIBRARY: Ghost Mode!");
-        }
-        else if (tile == 9 && now > carillonCD) { // CARILLON
-            panel.carillonZoomEndTime = now + 3000;
-            carillonCD = now + 15000;
-            System.out.println("CARILLON: Zoom Out!");
-        }
-        else if (tile == 8 && now > obleCD) { // OBLE
-            panel.obleFreezeEndTime = now + 5000;
-            obleCD = now + 20000;
-            System.out.println("OBLE: Time Freeze!");
-            // [MULTIPLAYER] panel.serverOut.println("ABILITY:OBLE");
+        return pickedUpIndex; // Returns to GamePanel so it can tell the Server
+    }
+
+    // --- NETWORK LOGIC: Called when server tells us someone else grabbed an item ---
+    public void remoteRemove(int index) {
+        if (index >= 0 && index < abilities.size()) {
+            Ability a = abilities.get(index);
+            a.active = false;
+            a.respawnTimer = 0;
         }
     }
 

@@ -1,9 +1,14 @@
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Random;
 
 public class MazeGenerator {
     public static int[][] generateMap() {
+        return generateMap(System.currentTimeMillis());
+    }
+
+    public static int[][] generateMap(long seed) {
         int roomsX = 25;
         int roomsY = 15;
 
@@ -19,7 +24,7 @@ public class MazeGenerator {
         }
 
         boolean[][] visited = new boolean[roomsY][roomsX];
-        carve(0, 0, visited, map, roomsX, roomsY);
+        carve(0, 0, visited, map, roomsX, roomsY, new Random(seed));
 
         for (int c = 0; c < actualCols; c++) {
             map[0][c] = 1;
@@ -79,7 +84,7 @@ public class MazeGenerator {
         }
     }
 
-    private static void carve(int x, int y, boolean[][] visited, int[][] map, int roomsX, int roomsY) {
+    private static void carve(int x, int y, boolean[][] visited, int[][] map, int roomsX, int roomsY, Random rng) {
         visited[y][x] = true;
         int startR = 1 + y * 4;
         int startC = 1 + x * 4;
@@ -93,7 +98,7 @@ public class MazeGenerator {
         int[][] directions = {{0, -1}, {0, 1}, {-1, 0}, {1, 0}};
         List<int[]> dirs = new ArrayList<>();
         for (int[] d : directions) dirs.add(d);
-        Collections.shuffle(dirs);
+        Collections.shuffle(dirs, rng);
 
         for (int[] dir : dirs) {
             int nx = x + dir[0];
@@ -109,7 +114,7 @@ public class MazeGenerator {
                 } else if (dir[1] == -1) {
                     map[startR - 1][startC] = 0; map[startR - 1][startC + 1] = 0; map[startR - 1][startC + 2] = 0;
                 }
-                carve(nx, ny, visited, map, roomsX, roomsY);
+                carve(nx, ny, visited, map, roomsX, roomsY, rng);
             }
         }
     }
