@@ -54,7 +54,6 @@ public class MapManager {
         }
     }
 
-    // Only trees and walls are solid now — landmarks are walkable
     private boolean isWall(int row, int col) {
         if (row < 0 || col < 0 || row >= mapLayout.length || col >= mapLayout[0].length) return true;
         int t = mapLayout[row][col];
@@ -139,53 +138,31 @@ public class MapManager {
                             g2.fillRect(x, y, tileSize, tileSize);
                         }
                         break;
-
                     case 1:
-                        if (treeImage != null) {
-                            g2.drawImage(treeImage, x, y, tileSize, tileSize, null);
-                        } else {
-                            g2.setColor(new Color(34, 139, 34));
-                            g2.fillRect(x, y, tileSize, tileSize);
-                        }
+                        if (treeImage != null) g2.drawImage(treeImage, x, y, tileSize, tileSize, null);
+                        else { g2.setColor(new Color(34, 139, 34)); g2.fillRect(x, y, tileSize, tileSize); }
                         break;
-
                     case 6:
-                        if (wallImage != null) {
-                            g2.drawImage(wallImage, x, y, tileSize, tileSize, null);
-                        } else {
-                            g2.setColor(new Color(100, 100, 100));
-                            g2.fillRect(x, y, tileSize, tileSize);
-                        }
+                        if (wallImage != null) g2.drawImage(wallImage, x, y, tileSize, tileSize, null);
+                        else { g2.setColor(new Color(100, 100, 100)); g2.fillRect(x, y, tileSize, tileSize); }
                         break;
-
                     case 2:
-                        drawLandmark(g2, row, col, 2, physciImage,
-                                new Color(70, 130, 200), "PHYSCI", physciDrawn);
+                        drawLandmark(g2, row, col, 2, physciImage, new Color(70, 130, 200), "PHYSCI", physciDrawn);
                         break;
-
                     case 3:
-                        drawLandmark(g2, row, col, 3, gateImage,
-                                new Color(128, 0, 0), "GATE", gateDrawn);
+                        drawLandmark(g2, row, col, 3, gateImage, new Color(128, 0, 0), "GATE", gateDrawn);
                         break;
-
                     case 7:
-                        drawLandmark(g2, row, col, 7, towerImage,
-                                new Color(70, 130, 180), "TOWER", towerDrawn);
+                        drawLandmark(g2, row, col, 7, towerImage, new Color(70, 130, 180), "TOWER", towerDrawn);
                         break;
-
                     case 8:
-                        drawLandmark(g2, row, col, 8, obleImage,
-                                new Color(139, 90, 43), "OBLE", obleDrawn);
+                        drawLandmark(g2, row, col, 8, obleImage, new Color(139, 90, 43), "OBLE", obleDrawn);
                         break;
-
                     case 9:
-                        drawLandmark(g2, row, col, 9, carillonImage,
-                                new Color(60, 120, 60), "CARILLON", carillonDrawn);
+                        drawLandmark(g2, row, col, 9, carillonImage, new Color(60, 120, 60), "CARILLON", carillonDrawn);
                         break;
-
                     case 10:
-                        drawLandmark(g2, row, col, 10, libraryImage,
-                                new Color(80, 80, 160), "LIBRARY", libraryDrawn);
+                        drawLandmark(g2, row, col, 10, libraryImage, new Color(80, 80, 160), "LIBRARY", libraryDrawn);
                         break;
                 }
             }

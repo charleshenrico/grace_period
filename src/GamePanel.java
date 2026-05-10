@@ -43,15 +43,17 @@ public class GamePanel extends JPanel implements ActionListener {
     MapManager     mapM;
     AbilityManager abilityM;
     Player         player;
-    javax.swing.Timer          timer;
+    javax.swing.Timer timer;
 
     // ── Camera / animation ────────────────────────────────────────────────────
     int    frameCount = 0;
     double scaleX = 1, scaleY = 1, camX = 0, camY = 0;
 
-    // ── Countdown ─────────────────────────────────────────────────────────────
+    // ── Countdown and UPLB Effects ─────────────────────────────────────────────
     long timeMillisLeft = 60_000;
     long lastUpdateTime = -1;
+    public long carillonZoomEndTime = 0;
+    public long obleFreezeEndTime = 0;
 
     // ── Assets ────────────────────────────────────────────────────────────────
     BufferedImage bgImage;
@@ -76,6 +78,12 @@ public class GamePanel extends JPanel implements ActionListener {
         setFocusable(true);
         try { bgImage = loadImage("background.jpg"); }
         catch (Exception ignored) {}
+        
+        // Setup initial single-player map for background testing (will be replaced by initGame)
+        mapM = new MapManager(MazeGenerator.generateMap());
+        player = new Player((50*40)+5, (49*40)+5, PLAYER_COLORS[0], Color.BLACK, "P1");
+        abilityM = new AbilityManager(mapM.mapLayout, this);
+
         setupKeys();
         timer = new javax.swing.Timer(16, this);
         timer.start();
@@ -257,7 +265,7 @@ public class GamePanel extends JPanel implements ActionListener {
     private void initGame(String myName, long seed) {
         mapM     = new MapManager(MazeGenerator.generateMap(seed));
         player   = new Player((50*40)+5, (57*40)+5, PLAYER_COLORS[chosenColorIndex], Color.BLACK, myName);
-        abilityM = new AbilityManager(mapM.mapLayout, seed);
+        abilityM = new AbilityManager(mapM.mapLayout, this, seed);
         timeMillisLeft = 60_000; lastUpdateTime = -1;
         remoteColors.clear(); colorIndex = 1; frameCount = 0;
     }
@@ -318,7 +326,12 @@ public class GamePanel extends JPanel implements ActionListener {
         long now = System.currentTimeMillis();
         long delta = now - lastUpdateTime;
         lastUpdateTime = now;
-        timeMillisLeft -= delta;
+
+        // OBLE POWERUP: Freeze timer
+        if (now > obleFreezeEndTime) {
+            timeMillisLeft -= delta;
+        }
+
         if (timeMillisLeft <= 0) { timeMillisLeft = 0; currentState = State.GAMEOVER; return; }
 
         // Run update steps proportional to elapsed time to keep speed consistent across lag
@@ -335,11 +348,13 @@ public class GamePanel extends JPanel implements ActionListener {
         if (isMultiplayer && netClient != null)
             netClient.sendPosition(player.x, player.y, chosenColorIndex);
 
-        scaleX = TARGET_ZOOM; scaleY = TARGET_ZOOM;
-        camX = (getWidth()  / 2.0) - (player.x + player.size/2.0) * TARGET_ZOOM;
-        camY = (getHeight() / 2.0) - (player.y + player.size/2.0) * TARGET_ZOOM;
+        // CARILLON POWERUP: Zoom out camera
+        double activeZoom = (now < carillonZoomEndTime) ? 0.8 : TARGET_ZOOM;
+        scaleX = activeZoom; scaleY = activeZoom;
+        camX = (getWidth()  / 2.0) - (player.x + player.size/2.0) * activeZoom;
+        camY = (getHeight() / 2.0) - (player.y + player.size/2.0) * activeZoom;
 
-        // Win check
+        // Win check (Physci)
         int cc = player.getCenterCol(), cr = player.getCenterRow();
         if (cr>=0 && cr<mapM.mapLayout.length && cc>=0 && cc<mapM.mapLayout[0].length
                 && mapM.mapLayout[cr][cc] == 2)
@@ -502,8 +517,6 @@ public class GamePanel extends JPanel implements ActionListener {
         drawBg(g2);
         g2.setFont(new Font("Arial", Font.BOLD, 58)); centered(g2, "Multiplayer Lobby", 150);
 
-        // Host shows their own IP (so others know what to connect to).
-        // Joining clients show the server's address they connected to.
         try {
             String ip = isHost
                     ? InetAddress.getLocalHost().getHostAddress()
@@ -578,7 +591,14 @@ public class GamePanel extends JPanel implements ActionListener {
         FontMetrics fm = g2.getFontMetrics();
         int tw=fm.stringWidth(ts), th=fm.getHeight();
         int bw=tw+40, bh=th+16, bx=(getWidth()-bw)/2, by=20;
-        g2.setColor(urg ? new Color(160,0,0,220) : new Color(0,0,0,180));
+        
+        // Flash blue if OBLE time freeze is active!
+        if (System.currentTimeMillis() < obleFreezeEndTime) {
+            g2.setColor(new Color(0, 100, 255, 180));
+        } else {
+            g2.setColor(urg ? new Color(160,0,0,220) : new Color(0,0,0,180));
+        }
+        
         g2.fillRoundRect(bx,by,bw,bh,20,20);
         g2.setStroke(new BasicStroke(2));
         g2.setColor(urg ? Color.RED : new Color(255,255,255,80));

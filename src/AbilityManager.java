@@ -5,43 +5,41 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 
-//  Spawns "Ability" on random walkable path tiles
-//  Handles the collision of abiliteies with player
-//  Applies effects, and respawns each consumed ability after RESPAWN_TICKS at a new random tile
-
 public class AbilityManager {
     private static final int TILE_SIZE = 40;
 
-    // How many of each ability type live on the map at once
-    // EDIT THIS depends on our specs
     private static final int N_STAMINA      = 4;
     private static final int N_INVISIBILITY = 3;
     private static final int N_SHIELD       = 3;
     private static final int N_SLOW_DOWN    = 5;
-
-    // Minimum spacing (in tiles) between any two abilities to avoid clusters
     private static final int MIN_SPACING_TILES = 3;
 
     private final int[][] mapLayout;
     private final List<Ability> abilities = new ArrayList<>();
     private final Random rng;
 
-    private BufferedImage staminaImage;
-    private BufferedImage invisibilityImage;
-    private BufferedImage shieldImage;
-    private BufferedImage slowDownImage;
+    private BufferedImage staminaImage, invisibilityImage, shieldImage, slowDownImage;
+    private GamePanel panel;
 
-    public AbilityManager(int[][] mapLayout) {
-        this(mapLayout, System.currentTimeMillis());
+    // Cooldowns for the UPLB Landmarks so they don't trigger 60x a second
+    private long towerCD, libraryCD, obleCD, carillonCD;
+
+    // --- MERGED CONSTRUCTORS ---
+    // Standard constructor for local play
+    public AbilityManager(int[][] mapLayout, GamePanel panel) {
+        this(mapLayout, panel, System.currentTimeMillis());
     }
 
-    public AbilityManager(int[][] mapLayout, long seed) {
+    // Seeded constructor for Network play (ensures all clients spawn items in the exact same spots)
+    public AbilityManager(int[][] mapLayout, GamePanel panel, long seed) {
         this.mapLayout = mapLayout;
+        this.panel = panel;
         this.rng = new Random(seed);
         loadImages();
         spawnInitial();
     }
 
+    // --- MERGED IMAGE LOADING (Safer Network Fallbacks) ---
     private BufferedImage loadImage(String name) {
         try {
             java.io.InputStream is = getClass().getResourceAsStream("/" + name);
@@ -86,9 +84,6 @@ public class AbilityManager {
         abilities.add(new Ability(type, pos[0], pos[1], imageFor(type)));
     }
 
-    // Returns a top-left pixel coordinates of an icon centered
-    // inside a randomly chosen walkable path tile
-    // Avoid walls/trees/landmarks and tries to keep abilities spaced in the map
     private int[] randomPathPosition() {
         int rows = mapLayout.length;
         int cols = mapLayout[0].length;
@@ -98,51 +93,42 @@ public class AbilityManager {
         for (int attempt = 0; attempt < 400; attempt++) {
             int row = rng.nextInt(rows);
             int col = rng.nextInt(cols);
-
-            // Only spawn on a walkable PATH tile
             if (mapLayout[row][col] != 0) continue;
 
             int x = col * TILE_SIZE + offset;
             int y = row * TILE_SIZE + offset;
 
-            // Spacing check vs all currently-placed (active OR awaiting-respawn) abilities
             boolean tooClose = false;
             for (Ability other : abilities) {
                 int dx = other.x - x;
                 int dy = other.y - y;
-                if (dx * dx + dy * dy < minDistSq) {
-                    tooClose = true;
-                    break;
-                }
+                if (dx * dx + dy * dy < minDistSq) { tooClose = true; break; }
             }
             if (tooClose) continue;
-
             return new int[]{x, y};
         }
 
-        // Last resort: any path tile, ignore spacing
         for (int attempt = 0; attempt < 200; attempt++) {
             int row = rng.nextInt(rows);
             int col = rng.nextInt(cols);
-            if (mapLayout[row][col] == 0) {
-                return new int[]{col * TILE_SIZE + offset, row * TILE_SIZE + offset};
-            }
+            if (mapLayout[row][col] == 0) return new int[]{col * TILE_SIZE + offset, row * TILE_SIZE + offset};
         }
         return null;
     }
 
     private void respawn(Ability a) {
         int[] pos = randomPathPosition();
-        if (pos != null) {
-            a.x = pos[0];
-            a.y = pos[1];
-        }
+        if (pos != null) { a.x = pos[0]; a.y = pos[1]; }
         a.active = true;
         a.respawnTimer = 0;
     }
 
-    // Tick all abilities — returns index of ability picked up this tick, or -1
+    // --- MERGED UPDATE LOGIC ---
+    // Returns index of ability picked up this tick (for server sync), or -1 if none
     public int update(Player player) {
+        int pickedUpIndex = -1;
+
+        // 1. Floating Abilities Logic (Multiplayer Sync)
         for (int i = 0; i < abilities.size(); i++) {
             Ability a = abilities.get(i);
             if (a.active) {
@@ -150,19 +136,48 @@ public class AbilityManager {
                     applyEffect(a, player);
                     a.active = false;
                     a.respawnTimer = 0;
-                    return i; // report which ability was picked up
+                    pickedUpIndex = i; // Save the index to return it to GamePanel
+                    break; // Only pick up one item per frame
                 }
             } else {
                 a.respawnTimer++;
-                if (a.respawnTimer >= Ability.RESPAWN_TICKS) {
-                    respawn(a);
-                }
+                if (a.respawnTimer >= Ability.RESPAWN_TICKS) respawn(a);
             }
         }
-        return -1;
+
+        // 2. UPLB Landmarks Logic (Main branch logic)
+        int r = player.getCenterRow();
+        int c = player.getCenterCol();
+        if (r >= 0 && r < mapLayout.length && c >= 0 && c < mapLayout[0].length) {
+            int tile = mapLayout[r][c];
+            long now = System.currentTimeMillis();
+
+            if (tile == 7 && now > towerCD) { // TOWER
+                player.towerSpeedEndTime = now + 5000;
+                towerCD = now + 15000;
+                System.out.println("TOWER: Speed Up!");
+            }
+            else if (tile == 10 && now > libraryCD) { // LIBRARY
+                player.libraryGhostEndTime = now + 5000;
+                libraryCD = now + 15000;
+                System.out.println("LIBRARY: Ghost Mode!");
+            }
+            else if (tile == 9 && now > carillonCD) { // CARILLON
+                panel.carillonZoomEndTime = now + 3000;
+                carillonCD = now + 15000;
+                System.out.println("CARILLON: Zoom Out!");
+            }
+            else if (tile == 8 && now > obleCD) { // OBLE
+                panel.obleFreezeEndTime = now + 5000;
+                obleCD = now + 20000;
+                System.out.println("OBLE: Time Freeze!");
+            }
+        }
+
+        return pickedUpIndex; // Returns to GamePanel so it can tell the Server
     }
 
-    // Called when server tells us another player picked up ability at index i
+    // --- NETWORK LOGIC: Called when server tells us someone else grabbed an item ---
     public void remoteRemove(int index) {
         if (index >= 0 && index < abilities.size()) {
             Ability a = abilities.get(index);
