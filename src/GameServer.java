@@ -4,24 +4,6 @@ import java.util.*;
 
 /**
  * UDP Game Server for Grace Period multiplayer.
- * Protocol (UDP datagrams, text-based):
- *
- *   Client -> Server:
- *     CONNECT <name>
- *     PING
- *     START_GAME              (host only)
- *     POS <name> <x> <y> <colorIndex> <abilityFlags>
- *     PICKUP <abilityIndex>
- *     TRAP_OTHERS <SLOW_DOWN|REVERSE_CONTROLS>
- *
- *   Server -> Client:
- *     LOBBY <name1>,<name2>,... <hostName>
- *     CONNECTED <name>
- *     START <seed>
- *     STATE <n1>:<x1>:<y1>:<ci1>:<flags1>,...
- *     REMOVE <abilityIndex>
- *     TRAP_YOU <SLOW_DOWN|REVERSE_CONTROLS>
- *     PONG
  */
 public class GameServer implements Runnable {
 
@@ -40,7 +22,6 @@ public class GameServer implements Runnable {
     private Thread thread;
     private volatile boolean running = true;
 
-    // ── Constructor ───────────────────────────────────────────────────────────
     public GameServer() throws IOException {
         serverSocket = new DatagramSocket(PORT);
         serverSocket.setSoTimeout(TIMEOUT_MS);
@@ -51,23 +32,20 @@ public class GameServer implements Runnable {
         System.out.println("[Server] Started on port " + PORT + " | seed=" + mapSeed);
     }
 
-    // ── Stop ──────────────────────────────────────────────────────────────────
     public void stop() {
         running = false;
         if (serverSocket != null && !serverSocket.isClosed()) serverSocket.close();
     }
 
-    // ── Main receive loop ─────────────────────────────────────────────────────
     @Override
     public void run() {
         long lastHeartbeat = System.currentTimeMillis();
         while (running) {
-            byte[] buf = new byte[512];
+            byte[] buf = new byte[1024];
             DatagramPacket packet = new DatagramPacket(buf, buf.length);
             try {
                 serverSocket.receive(packet);
             } catch (SocketTimeoutException e) {
-                // no data — fall through to heartbeat / timeout check
             } catch (IOException e) {
                 if (running) e.printStackTrace();
                 break;
@@ -88,7 +66,6 @@ public class GameServer implements Runnable {
         System.out.println("[Server] Stopped.");
     }
 
-    // ── Message dispatcher ────────────────────────────────────────────────────
     private synchronized void handleMessage(String data, InetAddress addr, int port) {
         NetPlayerInfo known = findPlayer(addr, port);
         if (known != null) known.lastSeen = System.currentTimeMillis();
@@ -106,12 +83,16 @@ public class GameServer implements Runnable {
         } else if (data.startsWith("TRAP_OTHERS ")) {
             handleTrapOthers(data, addr, port);
         }
+        // ── CHAT ROUTER: Broadcasts chat to all players ──
+        else if (data.startsWith("CHAT ")) {
+            broadcast(data);
+        }
     }
 
     private void handleConnect(String name, InetAddress addr, int port) {
-        if (gameStarted)              { send("ERR Game already started", addr, port); return; }
-        if (players.size() >= MAX_PLAYERS) { send("ERR Server full",       addr, port); return; }
-        if (players.containsKey(name)) { send("ERR Name taken",           addr, port); return; }
+        if (gameStarted)                   { send("ERR Game already started", addr, port); return; }
+        if (players.size() >= MAX_PLAYERS) { send("ERR Server full",          addr, port); return; }
+        if (players.containsKey(name))     { send("ERR Name taken",           addr, port); return; }
 
         NetPlayerInfo p = new NetPlayerInfo(name, addr, port);
         players.put(name, p);
@@ -137,7 +118,6 @@ public class GameServer implements Runnable {
 
     private void handlePosition(String data, InetAddress addr, int port) {
         if (!gameStarted) return;
-        // POS <name> <x> <y> <colorIndex> <abilityFlags>
         String[] parts = data.split(" ");
         if (parts.length < 4) return;
         String name = parts[1];
@@ -159,17 +139,13 @@ public class GameServer implements Runnable {
 
     private void handlePickup(String data, InetAddress addr, int port) {
         if (!gameStarted) return;
-        // PICKUP <abilityIndex>
         String[] parts = data.split(" ");
         if (parts.length < 2) return;
         broadcast("REMOVE " + parts[1]);
     }
 
-    // TRAP_OTHERS <type>: the sender picked up an enemy-trap ability.
-    // Relay TRAP_YOU <type> to every OTHER connected player.
     private void handleTrapOthers(String data, InetAddress addr, int port) {
         if (!gameStarted) return;
-        // e.g. "TRAP_OTHERS SLOW_DOWN"
         String[] parts = data.split(" ", 2);
         if (parts.length < 2) return;
         String trapType = parts[1].trim();
@@ -181,17 +157,13 @@ public class GameServer implements Runnable {
         }
     }
 
-    // ── Helpers ───────────────────────────────────────────────────────────────
     private String buildStateString() {
         StringBuilder sb = new StringBuilder("STATE ");
         boolean first = true;
         for (NetPlayerInfo p : players.values()) {
             if (!first) sb.append(',');
-            sb.append(p.name)         .append(':')
-                    .append(p.x)            .append(':')
-                    .append(p.y)            .append(':')
-                    .append(p.colorIndex)   .append(':')
-                    .append(p.abilityFlags);
+            sb.append(p.name).append(':').append(p.x).append(':').append(p.y).append(':')
+                    .append(p.colorIndex).append(':').append(p.abilityFlags);
             first = false;
         }
         return sb.toString();
@@ -236,14 +208,10 @@ public class GameServer implements Runnable {
 
     void send(String msg, InetAddress addr, int port) {
         byte[] buf = msg.getBytes();
-        try {
-            serverSocket.send(new DatagramPacket(buf, buf.length, addr, port));
-        } catch (IOException e) {
-            // ignore transient send errors
-        }
+        try { serverSocket.send(new DatagramPacket(buf, buf.length, addr, port)); }
+        catch (IOException e) { }
     }
 
-    // ── Inner class ───────────────────────────────────────────────────────────
     static class NetPlayerInfo {
         final String name;
         final InetAddress address;
@@ -254,13 +222,10 @@ public class GameServer implements Runnable {
         long lastSeen = System.currentTimeMillis();
 
         NetPlayerInfo(String name, InetAddress address, int port) {
-            this.name    = name;
-            this.address = address;
-            this.port    = port;
+            this.name = name; this.address = address; this.port = port;
         }
     }
 
-    // ── Stand-alone entry point ───────────────────────────────────────────────
     public static void main(String[] args) throws Exception {
         new GameServer();
         System.out.println("[Server] Running. Press Ctrl+C to stop.");
