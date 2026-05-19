@@ -204,7 +204,8 @@ https://github.com/user-attachments/assets/9bb00e87-382e-4b1b-89cb-770990e513fe
 
 
 **Multiplayer Lobby**
-<img width="1919" height="1079" alt="Screenshot 2026-05-19 092034" src="https://github.com/user-attachments/assets/fdd74ad9-0449-411b-9d96-d1de3ae76db1" />
+<img width="1919" height="1077" alt="Screenshot 2026-05-19 092352" src="https://github.com/user-attachments/assets/32f04a05-bf23-4623-91f0-49a491640d68" />
+
 
 
 **Win/Game Over Screen**
