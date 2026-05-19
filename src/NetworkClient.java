@@ -11,6 +11,15 @@ public class NetworkClient implements Runnable {
 
     public enum Phase { CONNECTING, LOBBY, PLAYING, DISCONNECTED }
 
+    // ── ADDED: Custom class to track name and ready state ──
+    public static class LobbyPlayer {
+        public String name;
+        public boolean isReady;
+        public LobbyPlayer(String name, boolean isReady) {
+            this.name = name; this.isReady = isReady;
+        }
+    }
+
     private volatile Phase phase = Phase.CONNECTING;
     private final String playerName;
     private final String serverHost;
@@ -18,17 +27,17 @@ public class NetworkClient implements Runnable {
     private DatagramSocket socket;
     private InetAddress serverAddress;
 
-    private volatile List<String> lobbyPlayers = new ArrayList<>();
+    private volatile List<LobbyPlayer> lobbyPlayers = new ArrayList<>(); // ── UPDATED ──
     private volatile String  hostName = "";
     private volatile boolean isHost   = false;
 
     private final Map<String, int[]> remotePositions = new LinkedHashMap<>();
 
-    private Consumer<List<String>> onLobbyUpdate;
+    private Consumer<List<LobbyPlayer>> onLobbyUpdate; // ── UPDATED ──
     private Consumer<Long>         onGameStart;
     private Consumer<Integer>      onAbilityRemoved;
     private Consumer<String>       onTrapReceived;
-    private Consumer<String>       onChatReceived; // ── CHAT CALLBACK ──
+    private Consumer<String>       onChatReceived;
     private Runnable               onDisconnect;
 
     private Thread thread;
@@ -45,12 +54,12 @@ public class NetworkClient implements Runnable {
         thread.setDaemon(true);
     }
 
-    public void setOnLobbyUpdate(Consumer<List<String>> cb)  { this.onLobbyUpdate    = cb; }
-    public void setOnGameStart(Consumer<Long> cb)            { this.onGameStart      = cb; }
-    public void setOnAbilityRemoved(Consumer<Integer> cb)    { this.onAbilityRemoved = cb; }
-    public void setOnTrapReceived(Consumer<String> cb)       { this.onTrapReceived   = cb; }
-    public void setOnChatReceived(Consumer<String> cb)       { this.onChatReceived   = cb; } // ── CHAT SETTER ──
-    public void setOnDisconnect(Runnable cb)                 { this.onDisconnect     = cb; }
+    public void setOnLobbyUpdate(Consumer<List<LobbyPlayer>> cb)  { this.onLobbyUpdate = cb; }
+    public void setOnGameStart(Consumer<Long> cb)                 { this.onGameStart      = cb; }
+    public void setOnAbilityRemoved(Consumer<Integer> cb)         { this.onAbilityRemoved = cb; }
+    public void setOnTrapReceived(Consumer<String> cb)            { this.onTrapReceived   = cb; }
+    public void setOnChatReceived(Consumer<String> cb)            { this.onChatReceived   = cb; }
+    public void setOnDisconnect(Runnable cb)                      { this.onDisconnect     = cb; }
 
     public void connect() {
         thread.start();
@@ -63,9 +72,10 @@ public class NetworkClient implements Runnable {
         if (socket != null && !socket.isClosed()) socket.close();
     }
 
-    public void sendPosition(int x, int y, int colorIndex, int abilityFlags) {
+    public void sendPosition(int x, int y, int skinIndex, int abilityFlags, int dirCode) {
         if (phase == Phase.PLAYING) {
-            send("POS " + playerName + " " + x + " " + y + " " + colorIndex + " " + abilityFlags);
+            send("POS " + playerName + " " + x + " " + y + " "
+                    + skinIndex + " " + abilityFlags + " " + dirCode);
         }
     }
 
@@ -77,7 +87,6 @@ public class NetworkClient implements Runnable {
         if (phase == Phase.PLAYING) send("TRAP_OTHERS " + trapType);
     }
 
-    // ── SEND CHAT TO SERVER ──
     public void sendChat(String msg) {
         if (phase == Phase.PLAYING) send("CHAT " + playerName + ": " + msg);
     }
@@ -86,12 +95,17 @@ public class NetworkClient implements Runnable {
         if (isHost && phase == Phase.LOBBY) send("START_GAME");
     }
 
-    public Phase         getPhase()         { return phase; }
-    public boolean       isHost()           { return isHost; }
-    public List<String>  getLobbyPlayers()  { return Collections.unmodifiableList(lobbyPlayers); }
-    public String        getHostName()      { return hostName; }
-    public String        getPlayerName()    { return playerName; }
-    public String        getServerHost()    { return serverHost; }
+    // ── ADDED: Toggle Ready Method ──
+    public void toggleReady() {
+        if (phase == Phase.LOBBY) send("TOGGLE_READY");
+    }
+
+    public Phase             getPhase()         { return phase; }
+    public boolean           isHost()           { return isHost; }
+    public List<LobbyPlayer> getLobbyPlayers()  { return Collections.unmodifiableList(lobbyPlayers); }
+    public String            getHostName()      { return hostName; }
+    public String            getPlayerName()    { return playerName; }
+    public String            getServerHost()    { return serverHost; }
 
     public synchronized Map<String, int[]> getRemotePositions() {
         return new LinkedHashMap<>(remotePositions);
@@ -129,10 +143,20 @@ public class NetworkClient implements Runnable {
             phase = Phase.LOBBY;
             System.out.println("[Client] Connected to server as " + playerName);
         } else if (data.startsWith("LOBBY ")) {
+            // ── UPDATED: Parses name:ready ──
             String rest = data.substring(6).trim();
             String[] parts = rest.split(" ");
-            String[] names = parts[0].split(",");
-            lobbyPlayers = new ArrayList<>(Arrays.asList(names));
+            String[] entries = parts[0].split(",");
+
+            List<LobbyPlayer> tempLobby = new ArrayList<>();
+            for (String entry : entries) {
+                String[] nameAndReady = entry.split(":");
+                if (nameAndReady.length == 2) {
+                    tempLobby.add(new LobbyPlayer(nameAndReady[0], Boolean.parseBoolean(nameAndReady[1])));
+                }
+            }
+            lobbyPlayers = tempLobby;
+
             if (parts.length > 1) {
                 hostName = parts[1];
                 isHost   = hostName.equals(playerName);
@@ -158,7 +182,6 @@ public class NetworkClient implements Runnable {
             String trapType = data.substring(9).trim();
             if (onTrapReceived != null) onTrapReceived.accept(trapType);
 
-            // ── RECEIVE CHAT FROM SERVER ──
         } else if (data.startsWith("CHAT ")) {
             if (onChatReceived != null) onChatReceived.accept(data.substring(5).trim());
 
@@ -179,10 +202,11 @@ public class NetworkClient implements Runnable {
                 String name       = parts[0];
                 int x             = Integer.parseInt(parts[1]);
                 int y             = Integer.parseInt(parts[2]);
-                int colorIndex    = parts.length >= 4 ? Integer.parseInt(parts[3]) : 0;
+                int skinIndex     = parts.length >= 4 ? Integer.parseInt(parts[3]) : 0;
                 int abilityFlags  = parts.length >= 5 ? Integer.parseInt(parts[4]) : 0;
+                int dirCode       = parts.length >= 6 ? Integer.parseInt(parts[5]) : 0;
                 if (!name.equals(playerName)) {
-                    remotePositions.put(name, new int[]{x, y, colorIndex, abilityFlags});
+                    remotePositions.put(name, new int[]{x, y, skinIndex, abilityFlags, dirCode});
                 }
             } catch (NumberFormatException ignored) {}
         }

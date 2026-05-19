@@ -76,15 +76,18 @@ public class GameServer implements Runnable {
             send("PONG", addr, port);
         } else if (data.equals("START_GAME")) {
             handleStartGame(addr, port);
+        } else if (data.equals("TOGGLE_READY")) { // ── ADDED: READY TOGGLE ──
+            if (known != null && !gameStarted) {
+                known.isReady = !known.isReady;
+                broadcastLobby();
+            }
         } else if (data.startsWith("POS ")) {
             handlePosition(data, addr, port);
         } else if (data.startsWith("PICKUP ")) {
             handlePickup(data, addr, port);
         } else if (data.startsWith("TRAP_OTHERS ")) {
             handleTrapOthers(data, addr, port);
-        }
-        // ── CHAT ROUTER: Broadcasts chat to all players ──
-        else if (data.startsWith("CHAT ")) {
+        } else if (data.startsWith("CHAT ")) {
             broadcast(data);
         }
     }
@@ -111,6 +114,15 @@ public class GameServer implements Runnable {
             send("ERR Only the host can start", addr, port);
             return;
         }
+
+        // ── ADDED: CHECK IF ALL PLAYERS ARE READY ──
+        for (NetPlayerInfo p : players.values()) {
+            if (!p.isReady) {
+                send("ERR Not all players are ready!", addr, port);
+                return;
+            }
+        }
+
         gameStarted = true;
         System.out.println("[Server] Game starting! seed=" + mapSeed);
         broadcast("START " + mapSeed);
@@ -122,16 +134,19 @@ public class GameServer implements Runnable {
         if (parts.length < 4) return;
         String name = parts[1];
         try {
-            int x     = Integer.parseInt(parts[2]);
-            int y     = Integer.parseInt(parts[3]);
-            int col   = parts.length >= 5 ? Integer.parseInt(parts[4]) : 0;
-            int flags = parts.length >= 6 ? Integer.parseInt(parts[5]) : 0;
+            int x        = Integer.parseInt(parts[2]);
+            int y        = Integer.parseInt(parts[3]);
+            int skinIdx  = parts.length >= 5 ? Integer.parseInt(parts[4]) : 0;
+            int flags    = parts.length >= 6 ? Integer.parseInt(parts[5]) : 0;
+            int dirCode  = parts.length >= 7 ? Integer.parseInt(parts[6]) : 0;
             NetPlayerInfo p = players.get(name);
             if (p != null) {
-                p.x = x; p.y = y;
-                p.colorIndex   = col;
+                p.x            = x;
+                p.y            = y;
+                p.skinIndex    = skinIdx;
                 p.abilityFlags = flags;
-                p.lastSeen = System.currentTimeMillis();
+                p.dirCode      = dirCode;
+                p.lastSeen     = System.currentTimeMillis();
             }
         } catch (NumberFormatException ignored) { return; }
         broadcast(buildStateString());
@@ -162,8 +177,12 @@ public class GameServer implements Runnable {
         boolean first = true;
         for (NetPlayerInfo p : players.values()) {
             if (!first) sb.append(',');
-            sb.append(p.name).append(':').append(p.x).append(':').append(p.y).append(':')
-                    .append(p.colorIndex).append(':').append(p.abilityFlags);
+            sb.append(p.name).append(':')
+                    .append(p.x).append(':')
+                    .append(p.y).append(':')
+                    .append(p.skinIndex).append(':')
+                    .append(p.abilityFlags).append(':')
+                    .append(p.dirCode);
             first = false;
         }
         return sb.toString();
@@ -173,9 +192,10 @@ public class GameServer implements Runnable {
         if (players.isEmpty()) return;
         StringBuilder sb = new StringBuilder("LOBBY ");
         boolean first = true;
-        for (String name : players.keySet()) {
+        for (NetPlayerInfo p : players.values()) {
             if (!first) sb.append(',');
-            sb.append(name);
+            // ── ADDED: Send Name AND Ready Status ──
+            sb.append(p.name).append(':').append(p.isReady);
             first = false;
         }
         sb.append(' ').append(hostName);
@@ -217,8 +237,10 @@ public class GameServer implements Runnable {
         final InetAddress address;
         final int port;
         int x, y;
-        int colorIndex   = 0;
+        int skinIndex    = 0;
         int abilityFlags = 0;
+        int dirCode      = 0;
+        boolean isReady  = false; // ── ADDED: Ready Tracker ──
         long lastSeen = System.currentTimeMillis();
 
         NetPlayerInfo(String name, InetAddress address, int port) {
