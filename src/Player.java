@@ -1,6 +1,8 @@
 import java.awt.*;
+import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.Collections;
+import javax.imageio.ImageIO;
 
 public class Player {
 
@@ -15,7 +17,6 @@ public class Player {
     private Color fillColor, borderColor;
     public String name;
 
-    // ── ADDED: Win state for the scoreboard ──
     public boolean hasFinished = false;
 
     // UPLB Powerup Timers
@@ -47,13 +48,58 @@ public class Player {
     private int slowedTicks          = 0;
     private int reverseControlsTicks = 0;
 
+    // ── SPRITE SYSTEM ──────────────────────────────────────────────────────────
+    private int skinIndex = 0;
+    private BufferedImage imgUp, imgDown, imgLeft, imgRight;
+
     public Player(int startX, int startY, Color fillColor, Color borderColor, String name) {
         this.x = startX;
         this.y = startY;
         this.fillColor = fillColor;
         this.borderColor = borderColor;
         this.name = name;
+        setSkin(0);
     }
+
+    public void setSkin(int idx) {
+        skinIndex = idx;
+        String[] prefixes = { "P1", "P2", "P3", "P4" };
+        String prefix = (idx >= 0 && idx < prefixes.length) ? prefixes[idx] : "P1";
+        imgUp    = loadImage(prefix + "Up.png");
+        imgDown  = loadImage(prefix + "Down.png");
+        imgLeft  = loadImage(prefix + "Left.png");
+        imgRight = loadImage(prefix + "Right.png");
+    }
+
+    public int getSkinIndex() { return skinIndex; }
+
+    // Returns 0=down, 1=up, 2=left, 3=right  (used to encode direction in network packets)
+    public int getDirCode() {
+        if (lastDirY == -1) return 1;
+        if (lastDirY ==  1) return 0;
+        if (lastDirX == -1) return 2;
+        if (lastDirX ==  1) return 3;
+        return 0;
+    }
+
+    private BufferedImage getCurrentSprite() {
+        if (lastDirY == -1) return imgUp;
+        if (lastDirY ==  1) return imgDown;
+        if (lastDirX == -1) return imgLeft;
+        if (lastDirX ==  1) return imgRight;
+        return imgDown;
+    }
+
+    private static BufferedImage loadImage(String name) {
+        try {
+            java.io.InputStream is = Player.class.getResourceAsStream("/" + name);
+            if (is != null) return ImageIO.read(is);
+        } catch (Exception ignored) {}
+        try { return ImageIO.read(new java.io.File("res/" + name)); }
+        catch (Exception ignored) {}
+        return null;
+    }
+    // ───────────────────────────────────────────────────────────────────────────
 
     public void update(int[][] mapLayout) {
         long now = System.currentTimeMillis();
@@ -210,7 +256,6 @@ public class Player {
     public boolean isEnemySlowed()  { return slowedTicks > 0; }
     public boolean isReversed()     { return reverseControlsTicks > 0; }
 
-    // ── SPEED AND FINISH FLAGS ──
     public int getAbilityFlags() {
         int f = 0;
         if (isShieldActive()) f |= 1;
@@ -225,21 +270,38 @@ public class Player {
     public void draw(Graphics2D g2) {
         java.awt.Composite oldC = g2.getComposite();
 
+        float alpha = 1.0f;
         if (System.currentTimeMillis() < libraryGhostEndTime) {
-            g2.setComposite(java.awt.AlphaComposite.getInstance(java.awt.AlphaComposite.SRC_OVER, 0.40f));
+            alpha = 0.40f;
         } else if (isInvisible()) {
-            g2.setComposite(java.awt.AlphaComposite.getInstance(java.awt.AlphaComposite.SRC_OVER, 0.30f));
+            alpha = 0.30f;
+        }
+        if (alpha < 1.0f) {
+            g2.setComposite(java.awt.AlphaComposite.getInstance(java.awt.AlphaComposite.SRC_OVER, alpha));
         }
 
-        Color body = fillColor;
-        if (isDashing)  body = body.brighter();
-        if (isSlowed()) body = new Color(120, 160, 220);
+        BufferedImage sprite = getCurrentSprite();
 
-        g2.setColor(body);
-        g2.fillRect(x, y, size, size);
-        g2.setColor(borderColor);
-        g2.setStroke(new BasicStroke(2));
-        g2.drawRect(x, y, size, size);
+        if (sprite != null) {
+            g2.drawImage(sprite, x, y, size, size, null);
+            if (isDashing) {
+                g2.setColor(new Color(255, 255, 255, 90));
+                g2.fillRect(x, y, size, size);
+            }
+            if (isSlowed()) {
+                g2.setColor(new Color(120, 160, 220, 120));
+                g2.fillRect(x, y, size, size);
+            }
+        } else {
+            Color body = fillColor;
+            if (isDashing)  body = body.brighter();
+            if (isSlowed()) body = new Color(120, 160, 220);
+            g2.setColor(body);
+            g2.fillRect(x, y, size, size);
+            g2.setColor(borderColor);
+            g2.setStroke(new BasicStroke(2));
+            g2.drawRect(x, y, size, size);
+        }
 
         g2.setComposite(oldC);
 

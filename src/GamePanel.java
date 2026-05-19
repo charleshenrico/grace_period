@@ -24,15 +24,18 @@ public class GamePanel extends JPanel implements ActionListener {
             new Color(255, 150, 50),
     };
 
+    static final String[] SKIN_NAMES = { "P1", "P2", "P3", "P4" };
+    static final int NUM_SKINS = 4;
+
     // ── State machine ─────────────────────────────────────────────────────────
     enum State { MAIN_MENU, MP_CHOICE, MP_NAME_ENTRY, MP_HOST_ENTRY,
         MP_LOBBY_HOST, MP_LOBBY_CLIENT,
-        SHOW_MAP, ZOOMING, PLAYING, FINISHED, GAMEOVER }
+        CHAR_SELECT, SHOW_MAP, ZOOMING, PLAYING, FINISHED, GAMEOVER }
     State currentState = State.MAIN_MENU;
 
     // ── Menu ──────────────────────────────────────────────────────────────────
-    int mainSel = 0;   // 0=1Player  1=Multiplayer
-    int mpSel   = 0;   // 0=Create   1=Join
+    int mainSel = 0;
+    int mpSel   = 0;
 
     // ── Text input ────────────────────────────────────────────────────────────
     StringBuilder nameInput = new StringBuilder();
@@ -57,16 +60,21 @@ public class GamePanel extends JPanel implements ActionListener {
 
     // ── Assets ────────────────────────────────────────────────────────────────
     BufferedImage bgImage;
+    private BufferedImage[][] ghostSprites;
 
     // ── Multiplayer ───────────────────────────────────────────────────────────
     boolean isMultiplayer    = false;
     boolean isCreatingServer = false;
     NetworkClient netClient;
     GameServer    hostedServer;
-    List<String>  lobbyList = new ArrayList<>();
+
+    // ── UPDATED: List of LobbyPlayer objects instead of Strings ──
+    List<NetworkClient.LobbyPlayer> lobbyList = new ArrayList<>();
+
     Map<String,Color> remoteColors = new LinkedHashMap<>();
     int colorIndex = 1;
-    int chosenColorIndex = 0;
+
+    int chosenSkinIndex = 0;
 
     volatile long    pendingMapSeed   = -1;
     volatile boolean pendingGameStart = false;
@@ -87,8 +95,11 @@ public class GamePanel extends JPanel implements ActionListener {
         setFocusable(true);
         try { bgImage = loadImage("background.jpg"); } catch (Exception ignored) {}
 
+        loadGhostSprites();
+
         mapM = new MapManager(MazeGenerator.generateMap());
         player = new Player((50*40)+5, (49*40)+5, PLAYER_COLORS[0], Color.BLACK, "P1");
+        player.setSkin(0);
         abilityM = new AbilityManager(mapM.mapLayout, this, System.currentTimeMillis(), false);
 
         setupKeys();
@@ -96,12 +107,20 @@ public class GamePanel extends JPanel implements ActionListener {
         timer.start();
     }
 
-    // ── Key bindings ──────────────────────────────────────────────────────────
+    private void loadGhostSprites() {
+        ghostSprites = new BufferedImage[NUM_SKINS][4];
+        String[] dirs = { "Down", "Up", "Left", "Right" };
+        for (int s = 0; s < NUM_SKINS; s++) {
+            for (int d = 0; d < 4; d++) {
+                ghostSprites[s][d] = loadImage(SKIN_NAMES[s] + dirs[d] + ".png");
+            }
+        }
+    }
+
     private void setupKeys() {
         InputMap  im = getInputMap(WHEN_IN_FOCUSED_WINDOW);
         ActionMap am = getActionMap();
 
-        // Player cannot move while typing in chat
         bindKey(im, am, KeyEvent.VK_W,     false, "wOn",  e -> { if (player!=null && !isTypingChat) player.upPressed    = true;  });
         bindKey(im, am, KeyEvent.VK_S,     false, "sOn",  e -> { if (player!=null && !isTypingChat) player.downPressed  = true;  });
         bindKey(im, am, KeyEvent.VK_A,     false, "aOn",  e -> { if (player!=null && !isTypingChat) player.leftPressed  = true;  });
@@ -121,7 +140,6 @@ public class GamePanel extends JPanel implements ActionListener {
         bindKey(im, am, KeyEvent.VK_LEFT,  true,  "ltf", e -> { if (player!=null) player.leftPressed  = false; });
         bindKey(im, am, KeyEvent.VK_RIGHT, true,  "rtf", e -> { if (player!=null) player.rightPressed = false; });
 
-        // T key is kept as an alternate to open chat
         im.put(KeyStroke.getKeyStroke(KeyEvent.VK_T, 0, false), "chat");
         am.put("chat", new AbstractAction() { public void actionPerformed(ActionEvent e) {
             if (currentState == State.PLAYING && !isTypingChat) {
@@ -134,23 +152,38 @@ public class GamePanel extends JPanel implements ActionListener {
             }
         }});
 
+        // ── ADDED: "R" to toggle Ready state ──
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_R, 0, false), "ready");
+        am.put("ready", new AbstractAction() { public void actionPerformed(ActionEvent e) {
+            if ((currentState == State.MP_LOBBY_HOST || currentState == State.MP_LOBBY_CLIENT) && netClient != null) {
+                netClient.toggleReady();
+            }
+        }});
+
         im.put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER,     0, false), "enter");
         im.put(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE,    0, false), "escape");
         im.put(KeyStroke.getKeyStroke(KeyEvent.VK_BACK_SPACE,0, false), "bs");
-        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_Q,         0, false), "colorPrev");
-        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_E,         0, false), "colorNext");
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_Q,         0, false), "skinPrev");
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_E,         0, false), "skinNext");
 
         am.put("enter",  new AbstractAction() { public void actionPerformed(ActionEvent e) { onEnter();     } });
         am.put("escape", new AbstractAction() { public void actionPerformed(ActionEvent e) { onEscape();    } });
         am.put("bs",     new AbstractAction() { public void actionPerformed(ActionEvent e) { onBackspace(); } });
-        am.put("colorPrev", new AbstractAction() { public void actionPerformed(ActionEvent e) {
-            if (currentState==State.MP_LOBBY_HOST || currentState==State.MP_LOBBY_CLIENT)
-                chosenColorIndex = (chosenColorIndex + PLAYER_COLORS.length - 1) % PLAYER_COLORS.length;
+
+        am.put("skinPrev", new AbstractAction() { public void actionPerformed(ActionEvent e) {
+            if (isCharPickState(currentState))
+                chosenSkinIndex = (chosenSkinIndex + NUM_SKINS - 1) % NUM_SKINS;
         }});
-        am.put("colorNext", new AbstractAction() { public void actionPerformed(ActionEvent e) {
-            if (currentState==State.MP_LOBBY_HOST || currentState==State.MP_LOBBY_CLIENT)
-                chosenColorIndex = (chosenColorIndex + 1) % PLAYER_COLORS.length;
+        am.put("skinNext", new AbstractAction() { public void actionPerformed(ActionEvent e) {
+            if (isCharPickState(currentState))
+                chosenSkinIndex = (chosenSkinIndex + 1) % NUM_SKINS;
         }});
+    }
+
+    private boolean isCharPickState(State s) {
+        return s == State.CHAR_SELECT
+                || s == State.MP_LOBBY_HOST
+                || s == State.MP_LOBBY_CLIENT;
     }
 
     private void bindKey(InputMap im, ActionMap am, int vk, boolean rel, String id, ActionListener al) {
@@ -209,8 +242,19 @@ public class GamePanel extends JPanel implements ActionListener {
                 tryJoinServer(nameInput.toString().trim(), h);
                 break;
             case MP_LOBBY_HOST:
-                if (netClient != null && netClient.isHost() && lobbyList.size() >= 1)
+                // ── UPDATED: Host can only start if ALL players are ready ──
+                boolean allReady = true;
+                for (NetworkClient.LobbyPlayer p : lobbyList) { if (!p.isReady) allReady = false; }
+
+                if (netClient != null && netClient.isHost() && lobbyList.size() >= 1 && allReady) {
                     netClient.requestStartGame();
+                } else {
+                    errorMsg = "Everyone must press [ R ] to Ready Up first!";
+                }
+                break;
+            case CHAR_SELECT:
+                initGame("P1", System.currentTimeMillis());
+                currentState = State.SHOW_MAP; frameCount = 0;
                 break;
             case PLAYING:
                 if (isTypingChat) {
@@ -218,7 +262,6 @@ public class GamePanel extends JPanel implements ActionListener {
                         if (netClient != null) {
                             netClient.sendChat(chatInput.toString());
                         } else {
-                            // Offline Chat Fallback
                             chatLog.add(new ChatMessage(player.name + ": " + chatInput.toString()));
                             if (chatLog.size() > 5) chatLog.remove(0);
                         }
@@ -226,10 +269,8 @@ public class GamePanel extends JPanel implements ActionListener {
                     chatInput.setLength(0);
                     isTypingChat = false;
                 } else {
-                    //Make Enter OPEN the chat box!
                     isTypingChat = true;
                     if (player != null) {
-                        // Stop the player from moving while typing
                         player.upPressed = player.downPressed = player.leftPressed = player.rightPressed = player.dashPressed = false;
                     }
                 }
@@ -244,6 +285,7 @@ public class GamePanel extends JPanel implements ActionListener {
     private void onEscape() {
         switch (currentState) {
             case MAIN_MENU: System.exit(0); break;
+            case CHAR_SELECT: currentState = State.MAIN_MENU; break;
             case PLAYING:
                 if (isTypingChat) { isTypingChat = false; chatInput.setLength(0); }
                 else { returnToMenu(); }
@@ -266,8 +308,8 @@ public class GamePanel extends JPanel implements ActionListener {
 
     private void startSinglePlayer() {
         isMultiplayer = false;
-        initGame("P1", System.currentTimeMillis());
-        currentState = State.SHOW_MAP; frameCount = 0;
+        currentState = State.CHAR_SELECT;
+        frameCount = 0;
     }
 
     private void tryCreateServer(String name) {
@@ -296,8 +338,8 @@ public class GamePanel extends JPanel implements ActionListener {
     private NetworkClient buildClient(String host, String name) throws Exception {
         NetworkClient nc = new NetworkClient(host, name);
 
-        nc.setOnLobbyUpdate(names -> SwingUtilities.invokeLater(() -> {
-            lobbyList = new ArrayList<>(names);
+        nc.setOnLobbyUpdate(players -> SwingUtilities.invokeLater(() -> {
+            lobbyList = new ArrayList<>(players);
             currentState = netClient.isHost() ? State.MP_LOBBY_HOST : State.MP_LOBBY_CLIENT;
         }));
 
@@ -329,7 +371,8 @@ public class GamePanel extends JPanel implements ActionListener {
 
     private void initGame(String myName, long seed) {
         mapM     = new MapManager(MazeGenerator.generateMap(seed));
-        player   = new Player((50*40)+5, (57*40)+5, PLAYER_COLORS[chosenColorIndex], Color.BLACK, myName);
+        player   = new Player((50*40)+5, (57*40)+5, PLAYER_COLORS[chosenSkinIndex % PLAYER_COLORS.length], Color.BLACK, myName);
+        player.setSkin(chosenSkinIndex);
         abilityM = new AbilityManager(mapM.mapLayout, this, seed, isMultiplayer);
         timeMillisLeft = 60_000; lastUpdateTime = -1;
         frameCount = 0; chatLog.clear();
@@ -407,7 +450,8 @@ public class GamePanel extends JPanel implements ActionListener {
         }
 
         if (isMultiplayer && netClient != null) {
-            netClient.sendPosition(player.x, player.y, chosenColorIndex, player.getAbilityFlags());
+            netClient.sendPosition(player.x, player.y, chosenSkinIndex,
+                    player.getAbilityFlags(), player.getDirCode());
         }
 
         double activeZoom = (now < carillonZoomEndTime) ? 0.8 : TARGET_ZOOM;
@@ -430,12 +474,13 @@ public class GamePanel extends JPanel implements ActionListener {
         g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
 
         switch (currentState) {
-            case MAIN_MENU:       drawMainMenu(g2);       return;
-            case MP_CHOICE:       drawMpChoice(g2);       return;
-            case MP_NAME_ENTRY:   drawNameEntry(g2);      return;
-            case MP_HOST_ENTRY:   drawHostEntry(g2);      return;
-            case MP_LOBBY_HOST:   drawLobby(g2, true);    return;
-            case MP_LOBBY_CLIENT: drawLobby(g2, false);   return;
+            case MAIN_MENU:       drawMainMenu(g2);         return;
+            case MP_CHOICE:       drawMpChoice(g2);         return;
+            case MP_NAME_ENTRY:   drawNameEntry(g2);        return;
+            case MP_HOST_ENTRY:   drawHostEntry(g2);        return;
+            case MP_LOBBY_HOST:   drawLobby(g2, true);      return;
+            case MP_LOBBY_CLIENT: drawLobby(g2, false);     return;
+            case CHAR_SELECT:     drawCharSelect(g2);       return;
             default: break;
         }
 
@@ -450,11 +495,11 @@ public class GamePanel extends JPanel implements ActionListener {
 
         if (isMultiplayer && netClient != null && currentState == State.PLAYING) {
             for (Map.Entry<String, int[]> en : netClient.getRemotePositions().entrySet()) {
-                int[] data  = en.getValue();
-                int ci      = data.length >= 3 ? data[2] : 0;
-                int flags   = data.length >= 4 ? data[3] : 0;
-                Color col   = PLAYER_COLORS[ci % PLAYER_COLORS.length];
-                drawGhost(g2, en.getKey(), data[0], data[1], col, flags);
+                int[] data   = en.getValue();
+                int skinIdx  = data.length >= 3 ? data[2] : 0;
+                int flags    = data.length >= 4 ? data[3] : 0;
+                int dirCode  = data.length >= 5 ? data[4] : 0;
+                drawGhost(g2, en.getKey(), data[0], data[1], skinIdx, flags, dirCode);
             }
         }
 
@@ -471,26 +516,41 @@ public class GamePanel extends JPanel implements ActionListener {
         if (currentState == State.GAMEOVER) drawOverlay(g2, "YOU LOSE.", "Final Grade: 5.0", Color.RED);
     }
 
-    private void drawGhost(Graphics2D g2, String name, int x, int y, Color col, int flags) {
-        boolean shielded  = (flags & 1) != 0;
+    private void drawGhost(Graphics2D g2, String name, int x, int y,
+                           int skinIdx, int flags, int dirCode) {
         boolean invisible = (flags & 2) != 0;
-        boolean slowed    = (flags & 4) != 0;
-        boolean reversed  = (flags & 8) != 0;
-
         if (invisible) return;
 
-        Color body = slowed ? new Color(120, 160, 220) : col;
-        g2.setColor(body);
-        g2.fillRect(x, y, 30, 30);
-        g2.setColor(Color.WHITE);
-        g2.setStroke(new BasicStroke(2));
-        g2.drawRect(x, y, 30, 30);
+        boolean shielded = (flags & 1) != 0;
+        boolean slowed   = (flags & 4) != 0;
+        boolean reversed = (flags & 8) != 0;
+
+        int si = Math.max(0, Math.min(NUM_SKINS - 1, skinIdx));
+        int dc = Math.max(0, Math.min(3, dirCode));
+
+        BufferedImage sprite = (ghostSprites != null) ? ghostSprites[si][dc] : null;
+
+        if (sprite != null) {
+            g2.drawImage(sprite, x, y, 30, 30, null);
+        } else {
+            Color col  = PLAYER_COLORS[si % PLAYER_COLORS.length];
+            Color body = slowed ? new Color(120, 160, 220) : col;
+            g2.setColor(body);
+            g2.fillRect(x, y, 30, 30);
+            g2.setColor(Color.WHITE);
+            g2.setStroke(new BasicStroke(2));
+            g2.drawRect(x, y, 30, 30);
+        }
+
+        if (slowed) {
+            g2.setColor(new Color(120, 160, 220, 110));
+            g2.fillRect(x, y, 30, 30);
+        }
 
         if (shielded) {
             g2.setColor(new Color(120, 200, 230));
             g2.setStroke(new BasicStroke(3));
-            int pad = 5;
-            g2.drawOval(x - pad, y - pad, 30 + pad * 2, 30 + pad * 2);
+            g2.drawOval(x - 5, y - 5, 40, 40);
             g2.setStroke(new BasicStroke(1));
         }
 
@@ -505,17 +565,91 @@ public class GamePanel extends JPanel implements ActionListener {
             String tag = "REV";
             FontMetrics fm2 = g2.getFontMetrics();
             int tx = x + (30 - fm2.stringWidth(tag)) / 2;
-            g2.setColor(Color.BLACK);          g2.drawString(tag, tx + 1, y - 16);
-            g2.setColor(new Color(200, 100, 220)); g2.drawString(tag, tx, y - 17);
+            g2.setColor(Color.BLACK);             g2.drawString(tag, tx + 1, y - 16);
+            g2.setColor(new Color(200, 100, 220)); g2.drawString(tag, tx,     y - 17);
         }
     }
 
-    // ── CHAT UI ──
+    private void drawCharSelect(Graphics2D g2) {
+        drawBg(g2);
+
+        g2.setFont(new Font("Arial", Font.BOLD, 58));
+        centered(g2, "Choose Your Character", 160);
+
+        int sprW   = 100, sprH = 100;
+        int gap    = 40;
+        int totalW = NUM_SKINS * sprW + (NUM_SKINS - 1) * gap;
+        int startX = (getWidth() - totalW) / 2;
+        int sprY   = 215;
+
+        for (int i = 0; i < NUM_SKINS; i++) {
+            int sx  = startX + i * (sprW + gap);
+            boolean sel = chosenSkinIndex == i;
+
+            if (sel) {
+                g2.setColor(frameCount % 60 < 30 ? Color.YELLOW : Color.ORANGE);
+                g2.setStroke(new BasicStroke(5));
+                g2.drawRoundRect(sx - 8, sprY - 8, sprW + 16, sprH + 16, 18, 18);
+                g2.setStroke(new BasicStroke(1));
+            } else {
+                g2.setColor(new Color(90, 90, 90));
+                g2.setStroke(new BasicStroke(2));
+                g2.drawRoundRect(sx - 4, sprY - 4, sprW + 8, sprH + 8, 12, 12);
+                g2.setStroke(new BasicStroke(1));
+            }
+
+            BufferedImage preview = (ghostSprites != null) ? ghostSprites[i][0] : null;
+            if (preview != null) {
+                g2.drawImage(preview, sx, sprY, sprW, sprH, null);
+            } else {
+                g2.setColor(PLAYER_COLORS[i % PLAYER_COLORS.length]);
+                g2.fillRect(sx, sprY, sprW, sprH);
+            }
+
+            g2.setFont(new Font("Arial", Font.BOLD, 22));
+            FontMetrics fm = g2.getFontMetrics();
+            int lx = sx + (sprW - fm.stringWidth(SKIN_NAMES[i])) / 2;
+            g2.setColor(sel ? Color.YELLOW : new Color(170, 170, 170));
+            g2.drawString(SKIN_NAMES[i], lx, sprY + sprH + 28);
+        }
+
+        if (ghostSprites != null) {
+            String[] dirLabels = { "Down", "Up", "Left", "Right" };
+            int dSize = 55, dGap = 24;
+            int dTotalW = 4 * dSize + 3 * dGap;
+            int dStartX = (getWidth() - dTotalW) / 2;
+            int dY      = sprY + sprH + 55;
+
+            g2.setFont(new Font("Arial", Font.PLAIN, 15));
+            g2.setColor(new Color(190, 190, 190));
+            centered(g2, SKIN_NAMES[chosenSkinIndex] + "  —  directional sprites", dY - 6);
+
+            for (int d = 0; d < 4; d++) {
+                int px = dStartX + d * (dSize + dGap);
+                int py = dY + 10;
+                BufferedImage dir = ghostSprites[chosenSkinIndex][d];
+                if (dir != null) {
+                    g2.drawImage(dir, px, py, dSize, dSize, null);
+                } else {
+                    g2.setColor(PLAYER_COLORS[chosenSkinIndex % PLAYER_COLORS.length]);
+                    g2.fillRect(px, py, dSize, dSize);
+                }
+                g2.setFont(new Font("Arial", Font.PLAIN, 12));
+                g2.setColor(new Color(210, 210, 210));
+                int lx2 = px + (dSize - g2.getFontMetrics().stringWidth(dirLabels[d])) / 2;
+                g2.drawString(dirLabels[d], lx2, py + dSize + 15);
+            }
+        }
+
+        g2.setFont(new Font("Arial", Font.PLAIN, 21));
+        centered(g2, "[ Q ] / [ E ] switch    [ ENTER ] confirm    [ ESC ] back", 640);
+        drawError(g2, 678);
+    }
+
     private void drawChat(Graphics2D g2) {
         int y = getHeight() - 60;
 
         if (isTypingChat) {
-            // Draw active typing box
             g2.setColor(new Color(0,0,0,150));
             g2.fillRect(20, y-25, 400, 30);
             g2.setColor(Color.WHITE);
@@ -526,7 +660,7 @@ public class GamePanel extends JPanel implements ActionListener {
         } else {
             g2.setColor(new Color(255, 255, 255, 120));
             g2.setFont(new Font("Arial", Font.ITALIC, 14));
-            g2.drawString("Press [ENTER] to chat", 25, y - 5);
+            g2.drawString("Press [T] to chat", 25, y - 5);
             y -= 25;
         }
 
@@ -534,10 +668,10 @@ public class GamePanel extends JPanel implements ActionListener {
         for (int i = chatLog.size() - 1; i >= 0; i--) {
             ChatMessage cm = chatLog.get(i);
             long age = now - cm.timestamp;
-            if (age > 10000) continue; // Messages disappear after 10 seconds
+            if (age > 10000) continue;
 
             int alpha = 255;
-            if (age > 8000) alpha = (int)(255 * (10000 - age) / 2000.0); // Fade out effect
+            if (age > 8000) alpha = (int)(255 * (10000 - age) / 2000.0);
 
             g2.setColor(new Color(0,0,0, (int)(alpha*0.6)));
             g2.setFont(new Font("Arial", Font.BOLD, 18));
@@ -549,7 +683,6 @@ public class GamePanel extends JPanel implements ActionListener {
         }
     }
 
-    // ── SCOREBOARD UI ──
     private void drawScoreboard(Graphics2D g2) {
         if (!isMultiplayer || netClient == null) return;
 
@@ -566,7 +699,7 @@ public class GamePanel extends JPanel implements ActionListener {
         int y = startY + 55;
 
         g2.setFont(new Font("Arial", Font.BOLD, 16));
-        g2.setColor(PLAYER_COLORS[chosenColorIndex]);
+        g2.setColor(PLAYER_COLORS[chosenSkinIndex % PLAYER_COLORS.length]);
         g2.drawString(netClient.getPlayerName(), startX + 15, y);
         g2.setColor(Color.WHITE);
         g2.setFont(new Font("Arial", Font.PLAIN, 14));
@@ -575,11 +708,11 @@ public class GamePanel extends JPanel implements ActionListener {
 
         for (Map.Entry<String, int[]> entry : netClient.getRemotePositions().entrySet()) {
             int[] data = entry.getValue();
-            int cIdx = data.length >= 3 ? data[2] : 0;
+            int sIdx  = data.length >= 3 ? data[2] : 0;
             int flags = data.length >= 4 ? data[3] : 0;
 
             g2.setFont(new Font("Arial", Font.BOLD, 16));
-            g2.setColor(PLAYER_COLORS[cIdx % PLAYER_COLORS.length]);
+            g2.setColor(PLAYER_COLORS[sIdx % PLAYER_COLORS.length]);
             g2.drawString(entry.getKey(), startX + 15, y);
 
             g2.setColor(Color.WHITE);
@@ -590,16 +723,15 @@ public class GamePanel extends JPanel implements ActionListener {
     }
 
     private String getStatusText(int flags) {
-        if ((flags & 32) != 0) return "Finished! \uD83D\uDC51"; // Crown
-        if ((flags & 8) != 0)  return "Reversed \uD83D\uDE35\u200D\uD83D\uDCAB"; // Dizzy
-        if ((flags & 4) != 0)  return "Slowed \uD83D\uDC0C"; // Snail
-        if ((flags & 16) != 0) return "Fast \u26A1"; // Lightning
-        if ((flags & 2) != 0)  return "Hidden \uD83D\uDC7B"; // Ghost
-        if ((flags & 1) != 0)  return "Shielded \uD83D\uDEE1\uFE0F"; // Shield
-        return "Running \uD83C\uDFC3"; // Runner
+        if ((flags & 32) != 0) return "Finished! \uD83D\uDC51";
+        if ((flags &  8) != 0) return "Reversed \uD83D\uDE35\u200D\uD83D\uDCAB";
+        if ((flags &  4) != 0) return "Slowed \uD83D\uDC0C";
+        if ((flags & 16) != 0) return "Fast \u26A1";
+        if ((flags &  2) != 0) return "Hidden \uD83D\uDC7B";
+        if ((flags &  1) != 0) return "Shielded \uD83D\uDEE1\uFE0F";
+        return "Running \uD83C\uDFC3";
     }
 
-    // ── UI helpers ────────────────────────────────────────────────────────────
     private BufferedImage loadImage(String name) {
         try {
             java.io.InputStream is = getClass().getResourceAsStream("/" + name);
@@ -644,7 +776,7 @@ public class GamePanel extends JPanel implements ActionListener {
             g2.drawString(opts[i], x, ys[i]);
         }
         g2.setFont(new Font("Arial", Font.PLAIN, 20));
-        centered(g2, "[ \u2191 / \u2193 ] select[ ENTER ] confirm    [ ESC ] quit", 640);
+        centered(g2, "[ \u2191 / \u2193 ] select    [ ENTER ] confirm    [ ESC ] quit", 640);
         drawError(g2, 690);
     }
 
@@ -706,6 +838,7 @@ public class GamePanel extends JPanel implements ActionListener {
         }
     }
 
+    // ── LOBBY UPDATE: Renders Ready states ────────────────────────────────────
     private void drawLobby(Graphics2D g2, boolean isHost) {
         drawBg(g2);
         g2.setFont(new Font("Arial", Font.BOLD, 58)); centered(g2, "Multiplayer Lobby", 150);
@@ -724,45 +857,77 @@ public class GamePanel extends JPanel implements ActionListener {
         g2.setFont(new Font("Arial", Font.BOLD, 28)); centered(g2, "Players:", 250);
 
         int ly = 285;
+        boolean allReady = true;
+
         for (int i = 0; i < lobbyList.size(); i++) {
-            String pn = lobbyList.get(i);
+            NetworkClient.LobbyPlayer lp = lobbyList.get(i);
+            String pn = lp.name;
+            if (!lp.isReady) allReady = false;
+
             boolean isH = netClient != null && pn.equals(netClient.getHostName());
-            String label = "  " + pn + (isH ? "  [HOST]" : "");
+
+            // ── ADDED: Display Ready Status ──
+            String readyText = lp.isReady ? "  [READY]" : "  [NOT READY]";
+            String label = "  " + pn + (isH ? "  [HOST]" : "") + readyText;
+
             g2.setFont(new Font("Arial", Font.BOLD, 26));
             FontMetrics fm = g2.getFontMetrics();
             int lx = (getWidth() - fm.stringWidth(label)) / 2;
-            Color c = PLAYER_COLORS[i % PLAYER_COLORS.length];
+
+            // Color the text Green if Ready, Red if not ready
+            Color c = lp.isReady ? new Color(100, 255, 100) : new Color(255, 100, 100);
+
             g2.setColor(Color.BLACK); g2.drawString(label, lx+2, ly+2);
             g2.setColor(c);           g2.drawString(label, lx, ly);
             ly += 40;
         }
 
-        String[] colorNames = {"Red","Blue","Green","Yellow","Purple","Orange"};
         g2.setFont(new Font("Arial", Font.BOLD, 22));
-        centered(g2, "Your color:  [ Q ] prev    [ E ] next", 560);
-        int swatchX = getWidth()/2 - 20;
-        g2.setColor(PLAYER_COLORS[chosenColorIndex]);
-        g2.fillRect(swatchX, 568, 40, 20);
-        g2.setColor(Color.WHITE); g2.setStroke(new BasicStroke(1));
-        g2.drawRect(swatchX, 568, 40, 20);
+        centered(g2, "Your character:  [ Q ] prev    [ E ] next", 535);
+
+        int spW = 64, spH = 64;
+        int spX = getWidth() / 2 - spW / 2;
+        int spY = 548;
+
+        BufferedImage preview = (ghostSprites != null) ? ghostSprites[chosenSkinIndex][0] : null;
+        if (preview != null) {
+            g2.drawImage(preview, spX, spY, spW, spH, null);
+        } else {
+            g2.setColor(PLAYER_COLORS[chosenSkinIndex]);
+            g2.fillRect(spX, spY, spW, spH);
+        }
+
+        g2.setColor(frameCount % 60 < 30 ? Color.YELLOW : Color.WHITE);
+        g2.setStroke(new BasicStroke(2));
+        g2.drawRect(spX, spY, spW, spH);
+        g2.setStroke(new BasicStroke(1));
+
         g2.setFont(new Font("Arial", Font.PLAIN, 18));
-        centered(g2, colorNames[chosenColorIndex], 606);
+        g2.setColor(Color.WHITE);
+        centered(g2, SKIN_NAMES[chosenSkinIndex], 628);
+
+        // ── ADDED: "Press R to Ready" instruction ──
+        g2.setFont(new Font("Arial", Font.BOLD, 24));
+        g2.setColor(new Color(150, 200, 255));
+        centered(g2, "Press [ R ] to Toggle Ready", 665);
 
         if (isHost) {
-            boolean canStart = lobbyList.size() >= 1;
-            String btn = canStart ? "[ ENTER ] Start Game" : "Waiting for players to join...";
+            boolean canStart = lobbyList.size() >= 1 && allReady; // Must be ready!
+            String btn = canStart ? "[ ENTER ] Start Game" : "Waiting for all players to be READY...";
             g2.setFont(new Font("Arial", Font.BOLD, 34));
             FontMetrics fm = g2.getFontMetrics();
             int bx = (getWidth() - fm.stringWidth(btn)) / 2;
             g2.setColor(canStart && frameCount%60<40 ? Color.YELLOW : new Color(180,180,180));
-            g2.drawString(btn, bx, 648);
+            g2.drawString(btn, bx, 715);
         } else {
             g2.setFont(new Font("Arial", Font.ITALIC, 28));
-            centered(g2, "Waiting for host to start the game...", 648);
+            centered(g2, "Waiting for host to start the game...", 715);
         }
 
         g2.setFont(new Font("Arial", Font.PLAIN, 20));
-        centered(g2, "[ ESC ] disconnect & return to menu", 690);
+        centered(g2, "[ ESC ] disconnect & return to menu", 750);
+
+        drawError(g2, 780);
     }
 
     private void drawHUD(Graphics2D g2) {
