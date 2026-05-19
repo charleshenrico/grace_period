@@ -13,6 +13,6 @@ public class Main {
         window.setExtendedState(JFrame.MAXIMIZED_BOTH);
         window.setLocationRelativeTo(null);
         window.setVisible(true);
-        gamePanel.requestFocusInWindow(); // ADDED
+        gamePanel.requestFocusInWindow();
     }
 }

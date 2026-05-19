@@ -68,9 +68,7 @@ public class GamePanel extends JPanel implements ActionListener {
     NetworkClient netClient;
     GameServer    hostedServer;
 
-    // ── UPDATED: List of LobbyPlayer objects instead of Strings ──
     List<NetworkClient.LobbyPlayer> lobbyList = new ArrayList<>();
-
     Map<String,Color> remoteColors = new LinkedHashMap<>();
     int colorIndex = 1;
 
@@ -152,7 +150,6 @@ public class GamePanel extends JPanel implements ActionListener {
             }
         }});
 
-        // ── ADDED: "R" to toggle Ready state ──
         im.put(KeyStroke.getKeyStroke(KeyEvent.VK_R, 0, false), "ready");
         am.put("ready", new AbstractAction() { public void actionPerformed(ActionEvent e) {
             if ((currentState == State.MP_LOBBY_HOST || currentState == State.MP_LOBBY_CLIENT) && netClient != null) {
@@ -242,7 +239,6 @@ public class GamePanel extends JPanel implements ActionListener {
                 tryJoinServer(nameInput.toString().trim(), h);
                 break;
             case MP_LOBBY_HOST:
-                // ── UPDATED: Host can only start if ALL players are ready ──
                 boolean allReady = true;
                 for (NetworkClient.LobbyPlayer p : lobbyList) { if (!p.isReady) allReady = false; }
 
@@ -550,7 +546,8 @@ public class GamePanel extends JPanel implements ActionListener {
         if (shielded) {
             g2.setColor(new Color(120, 200, 230));
             g2.setStroke(new BasicStroke(3));
-            g2.drawOval(x - 5, y - 5, 40, 40);
+            int pad = 5;
+            g2.drawOval(x - pad, y - pad, 40, 40);
             g2.setStroke(new BasicStroke(1));
         }
 
@@ -646,6 +643,238 @@ public class GamePanel extends JPanel implements ActionListener {
         drawError(g2, 678);
     }
 
+    // ── UI helpers ────────────────────────────────────────────────────────────
+    private BufferedImage loadImage(String name) {
+        try {
+            java.io.InputStream is = getClass().getResourceAsStream("/" + name);
+            if (is != null) return ImageIO.read(is);
+        } catch (Exception ignored) {}
+        try { return ImageIO.read(new java.io.File("res/" + name)); }
+        catch (Exception ignored) {}
+        return null;
+    }
+
+    private void drawBg(Graphics2D g2) {
+        if (bgImage != null) g2.drawImage(bgImage, 0, 0, getWidth(), getHeight(), null);
+        else { g2.setColor(Color.DARK_GRAY); g2.fillRect(0, 0, getWidth(), getHeight()); }
+        g2.setColor(new Color(0, 0, 0, 120));
+        g2.fillRect(0, 0, getWidth(), getHeight());
+    }
+
+    private void shadow(Graphics2D g2, String t, int x, int y) {
+        g2.setColor(Color.BLACK); g2.drawString(t, x+2, y+2);
+        g2.setColor(Color.WHITE); g2.drawString(t, x, y);
+    }
+
+    private void centered(Graphics2D g2, String t, int y) {
+        int x = (getWidth() - g2.getFontMetrics().stringWidth(t)) / 2;
+        shadow(g2, t, x, y);
+    }
+
+    private void drawMainMenu(Graphics2D g2) {
+        drawBg(g2);
+        g2.setFont(new Font("Arial", Font.BOLD, 72));   centered(g2, "Welcome to Grace Period", 220);
+        g2.setFont(new Font("Arial", Font.ITALIC, 38)); centered(g2, "don't be late...", 285);
+
+        String[] opts = { "> 1 Player <", "> Multiplayer <" };
+        int[] ys = { 430, 510 };
+        for (int i = 0; i < 2; i++) {
+            g2.setFont(new Font("Arial", Font.BOLD, 40));
+            FontMetrics fm = g2.getFontMetrics();
+            int x = (getWidth() - fm.stringWidth(opts[i])) / 2;
+            boolean sel = mainSel == i;
+            if (sel && frameCount%60<30) g2.setColor(Color.YELLOW);
+            else g2.setColor(sel ? Color.ORANGE : new Color(180, 180, 180));
+            g2.drawString(opts[i], x, ys[i]);
+        }
+
+        g2.setFont(new Font("Arial", Font.PLAIN, 20));
+        centered(g2, "[ \u2191 / \u2193 ] select    [ ENTER ] confirm    [ ESC ] quit", 740);
+        drawError(g2, 780);
+
+        drawHowToPlay(g2);
+    }
+
+    private void drawHowToPlay(Graphics2D g2) {
+        int bx = 40, by = getHeight() - 280, bw = 340, bh = 240;
+
+        g2.setColor(new Color(0, 0, 0, 180));
+        g2.fillRoundRect(bx, by, bw, bh, 15, 15);
+        g2.setColor(Color.WHITE);
+        g2.setStroke(new BasicStroke(2));
+        g2.drawRoundRect(bx, by, bw, bh, 15, 15);
+
+        int textX = bx + 20;
+        int textY = by + 35;
+
+        g2.setFont(new Font("Arial", Font.BOLD, 22));
+        g2.setColor(Color.YELLOW);
+        g2.drawString("OBJECTIVE", textX, textY);
+
+        g2.setFont(new Font("Arial", Font.PLAIN, 18));
+        g2.setColor(Color.WHITE);
+        textY += 25; g2.drawString("Race through the maze to", textX, textY);
+        textY += 25; g2.drawString("reach PhySci before 60s", textX, textY);
+        textY += 25; g2.drawString("runs out!", textX, textY);
+
+        textY += 35;
+        g2.setFont(new Font("Arial", Font.BOLD, 22));
+        g2.setColor(Color.YELLOW);
+        g2.drawString("CONTROLS", textX, textY);
+
+        g2.setFont(new Font("Arial", Font.PLAIN, 18));
+        g2.setColor(Color.WHITE);
+        textY += 25; g2.drawString("WASD / Arrows : Move", textX, textY);
+        textY += 25; g2.drawString("SPACE : Dash", textX, textY);
+        textY += 25; g2.drawString("T : Chat (Multiplayer)", textX, textY);
+    }
+
+    private void drawMpChoice(Graphics2D g2) {
+        drawBg(g2);
+        g2.setFont(new Font("Arial", Font.BOLD, 65)); centered(g2, "Multiplayer", 200);
+        String[] opts = { "> Create Server <", "> Join Server <" };
+        int[] ys = { 390, 470 };
+        for (int i = 0; i < 2; i++) {
+            g2.setFont(new Font("Arial", Font.BOLD, 40));
+            FontMetrics fm = g2.getFontMetrics();
+            int x = (getWidth() - fm.stringWidth(opts[i])) / 2;
+            boolean sel = mpSel == i;
+            if (sel && frameCount%60<30) g2.setColor(Color.YELLOW);
+            else g2.setColor(sel ? Color.ORANGE : new Color(180, 180, 180));
+            g2.drawString(opts[i], x, ys[i]);
+        }
+        g2.setFont(new Font("Arial", Font.PLAIN, 20));
+        centered(g2, "[ \u2191 / \u2193 ] select    [ ENTER ] confirm    [ ESC ] back", 630);
+    }
+
+    private void drawNameEntry(Graphics2D g2) {
+        drawBg(g2);
+        String title = isCreatingServer ? "Create Server" : "Join Server - Step 1/2";
+        g2.setFont(new Font("Arial", Font.BOLD, 58));   centered(g2, title, 210);
+        g2.setFont(new Font("Arial", Font.PLAIN, 30));  centered(g2, "Enter your player name:", 340);
+        drawInputBox(g2, nameInput.toString(), 390);
+        g2.setFont(new Font("Arial", Font.PLAIN, 20));
+        centered(g2, "[ ENTER ] confirm    [ ESC ] back", 630);
+        drawError(g2, 680);
+    }
+
+    private void drawHostEntry(Graphics2D g2) {
+        drawBg(g2);
+        g2.setFont(new Font("Arial", Font.BOLD, 58));  centered(g2, "Join Server - Step 2/2", 200);
+        g2.setFont(new Font("Arial", Font.BOLD, 26));  centered(g2, "Name: " + nameInput, 310);
+        g2.setFont(new Font("Arial", Font.PLAIN, 30)); centered(g2, "Enter server IP address:", 370);
+        drawInputBox(g2, hostInput.toString(), 420);
+        g2.setFont(new Font("Arial", Font.ITALIC, 22)); centered(g2, "(leave blank for localhost)", 510);
+        g2.setFont(new Font("Arial", Font.PLAIN, 20));  centered(g2, "[ ENTER ] connect    [ ESC ] back", 630);
+        drawError(g2, 680);
+    }
+
+    private void drawInputBox(Graphics2D g2, String text, int y) {
+        int bw=500, bh=50, bx=(getWidth()-bw)/2;
+        g2.setColor(new Color(0,0,0,160)); g2.fillRoundRect(bx, y-35, bw, bh, 10, 10);
+        g2.setColor(Color.WHITE); g2.setStroke(new BasicStroke(2)); g2.drawRoundRect(bx, y-35, bw, bh, 10, 10);
+        String display = text + (frameCount%40<20 ? "|" : "");
+        g2.setFont(new Font("Monospaced", Font.PLAIN, 26));
+        g2.setColor(Color.WHITE); g2.drawString(display, bx+15, y);
+    }
+
+    private void drawError(Graphics2D g2, int y) {
+        if (!errorMsg.isEmpty()) {
+            g2.setFont(new Font("Arial", Font.BOLD, 22));
+            g2.setColor(Color.RED);
+            int x = (getWidth() - g2.getFontMetrics().stringWidth(errorMsg)) / 2;
+            g2.drawString(errorMsg, x, y);
+        }
+    }
+
+    private void drawLobby(Graphics2D g2, boolean isHost) {
+        drawBg(g2);
+        g2.setFont(new Font("Arial", Font.BOLD, 58)); centered(g2, "Multiplayer Lobby", 150);
+
+        try {
+            String ip = isHost
+                    ? InetAddress.getLocalHost().getHostAddress()
+                    : (netClient != null ? netClient.getServerHost() : "?");
+            String label = isHost
+                    ? "Your IP (share this): " + ip + "   Port: " + GameServer.PORT
+                    : "Connected to: " + ip + "   Port: " + GameServer.PORT;
+            g2.setFont(new Font("Arial", Font.PLAIN, 22));
+            centered(g2, label, 200);
+        } catch (Exception ignored) {}
+
+        g2.setFont(new Font("Arial", Font.BOLD, 28)); centered(g2, "Players:", 250);
+
+        int ly = 285;
+        boolean allReady = true;
+
+        for (int i = 0; i < lobbyList.size(); i++) {
+            NetworkClient.LobbyPlayer lp = lobbyList.get(i);
+            String pn = lp.name;
+            if (!lp.isReady) allReady = false;
+
+            boolean isH = netClient != null && pn.equals(netClient.getHostName());
+
+            String readyText = lp.isReady ? "  [READY]" : "  [NOT READY]";
+            String label = "  " + pn + (isH ? "  [HOST]" : "") + readyText;
+
+            g2.setFont(new Font("Arial", Font.BOLD, 26));
+            FontMetrics fm = g2.getFontMetrics();
+            int lx = (getWidth() - fm.stringWidth(label)) / 2;
+
+            Color c = lp.isReady ? new Color(100, 255, 100) : new Color(255, 100, 100);
+
+            g2.setColor(Color.BLACK); g2.drawString(label, lx+2, ly+2);
+            g2.setColor(c);           g2.drawString(label, lx, ly);
+            ly += 40;
+        }
+
+        g2.setFont(new Font("Arial", Font.BOLD, 22));
+        centered(g2, "Your character:  [ Q ] prev    [ E ] next", 535);
+
+        int spW = 64, spH = 64;
+        int spX = getWidth() / 2 - spW / 2;
+        int spY = 548;
+
+        BufferedImage preview = (ghostSprites != null) ? ghostSprites[chosenSkinIndex][0] : null;
+        if (preview != null) {
+            g2.drawImage(preview, spX, spY, spW, spH, null);
+        } else {
+            g2.setColor(PLAYER_COLORS[chosenSkinIndex]);
+            g2.fillRect(spX, spY, spW, spH);
+        }
+
+        g2.setColor(frameCount % 60 < 30 ? Color.YELLOW : Color.WHITE);
+        g2.setStroke(new BasicStroke(2));
+        g2.drawRect(spX, spY, spW, spH);
+        g2.setStroke(new BasicStroke(1));
+
+        g2.setFont(new Font("Arial", Font.PLAIN, 18));
+        g2.setColor(Color.WHITE);
+        centered(g2, SKIN_NAMES[chosenSkinIndex], 628);
+
+        g2.setFont(new Font("Arial", Font.BOLD, 24));
+        g2.setColor(new Color(150, 200, 255));
+        centered(g2, "Press [ R ] to Toggle Ready", 665);
+
+        if (isHost) {
+            boolean canStart = lobbyList.size() >= 1 && allReady;
+            String btn = canStart ? "[ ENTER ] Start Game" : "Waiting for all players to be READY...";
+            g2.setFont(new Font("Arial", Font.BOLD, 34));
+            FontMetrics fm = g2.getFontMetrics();
+            int bx = (getWidth() - fm.stringWidth(btn)) / 2;
+            g2.setColor(canStart && frameCount%60<40 ? Color.YELLOW : new Color(180,180,180));
+            g2.drawString(btn, bx, 715);
+        } else {
+            g2.setFont(new Font("Arial", Font.ITALIC, 28));
+            centered(g2, "Waiting for host to start the game...", 715);
+        }
+
+        g2.setFont(new Font("Arial", Font.PLAIN, 20));
+        centered(g2, "[ ESC ] disconnect & return to menu", 750);
+
+        drawError(g2, 780);
+    }
+
     private void drawChat(Graphics2D g2) {
         int y = getHeight() - 60;
 
@@ -730,204 +959,6 @@ public class GamePanel extends JPanel implements ActionListener {
         if ((flags &  2) != 0) return "Hidden \uD83D\uDC7B";
         if ((flags &  1) != 0) return "Shielded \uD83D\uDEE1\uFE0F";
         return "Running \uD83C\uDFC3";
-    }
-
-    private BufferedImage loadImage(String name) {
-        try {
-            java.io.InputStream is = getClass().getResourceAsStream("/" + name);
-            if (is != null) return ImageIO.read(is);
-        } catch (Exception ignored) {}
-        try { return ImageIO.read(new java.io.File("res/" + name)); }
-        catch (Exception ignored) {}
-        return null;
-    }
-
-    private void drawBg(Graphics2D g2) {
-        if (bgImage != null) g2.drawImage(bgImage, 0, 0, getWidth(), getHeight(), null);
-        else { g2.setColor(Color.DARK_GRAY); g2.fillRect(0, 0, getWidth(), getHeight()); }
-        g2.setColor(new Color(0, 0, 0, 120));
-        g2.fillRect(0, 0, getWidth(), getHeight());
-    }
-
-    private void shadow(Graphics2D g2, String t, int x, int y) {
-        g2.setColor(Color.BLACK); g2.drawString(t, x+2, y+2);
-        g2.setColor(Color.WHITE); g2.drawString(t, x, y);
-    }
-
-    private void centered(Graphics2D g2, String t, int y) {
-        int x = (getWidth() - g2.getFontMetrics().stringWidth(t)) / 2;
-        shadow(g2, t, x, y);
-    }
-
-    private void drawMainMenu(Graphics2D g2) {
-        drawBg(g2);
-        g2.setFont(new Font("Arial", Font.BOLD, 72));   centered(g2, "Welcome to Grace Period", 220);
-        g2.setFont(new Font("Arial", Font.ITALIC, 38)); centered(g2, "don't be late...", 285);
-
-        String[] opts = { "> 1 Player <", "> Multiplayer <" };
-        int[] ys = { 430, 510 };
-        for (int i = 0; i < 2; i++) {
-            g2.setFont(new Font("Arial", Font.BOLD, 40));
-            FontMetrics fm = g2.getFontMetrics();
-            int x = (getWidth() - fm.stringWidth(opts[i])) / 2;
-            boolean sel = mainSel == i;
-            if (sel && frameCount%60<30) g2.setColor(Color.YELLOW);
-            else g2.setColor(sel ? Color.ORANGE : new Color(180, 180, 180));
-            g2.drawString(opts[i], x, ys[i]);
-        }
-        g2.setFont(new Font("Arial", Font.PLAIN, 20));
-        centered(g2, "[ \u2191 / \u2193 ] select    [ ENTER ] confirm    [ ESC ] quit", 640);
-        drawError(g2, 690);
-    }
-
-    private void drawMpChoice(Graphics2D g2) {
-        drawBg(g2);
-        g2.setFont(new Font("Arial", Font.BOLD, 65)); centered(g2, "Multiplayer", 200);
-        String[] opts = { "> Create Server <", "> Join Server <" };
-        int[] ys = { 390, 470 };
-        for (int i = 0; i < 2; i++) {
-            g2.setFont(new Font("Arial", Font.BOLD, 40));
-            FontMetrics fm = g2.getFontMetrics();
-            int x = (getWidth() - fm.stringWidth(opts[i])) / 2;
-            boolean sel = mpSel == i;
-            if (sel && frameCount%60<30) g2.setColor(Color.YELLOW);
-            else g2.setColor(sel ? Color.ORANGE : new Color(180, 180, 180));
-            g2.drawString(opts[i], x, ys[i]);
-        }
-        g2.setFont(new Font("Arial", Font.PLAIN, 20));
-        centered(g2, "[ \u2191 / \u2193 ] select    [ ENTER ] confirm    [ ESC ] back", 630);
-    }
-
-    private void drawNameEntry(Graphics2D g2) {
-        drawBg(g2);
-        String title = isCreatingServer ? "Create Server" : "Join Server - Step 1/2";
-        g2.setFont(new Font("Arial", Font.BOLD, 58));   centered(g2, title, 210);
-        g2.setFont(new Font("Arial", Font.PLAIN, 30));  centered(g2, "Enter your player name:", 340);
-        drawInputBox(g2, nameInput.toString(), 390);
-        g2.setFont(new Font("Arial", Font.PLAIN, 20));
-        centered(g2, "[ ENTER ] confirm    [ ESC ] back", 630);
-        drawError(g2, 680);
-    }
-
-    private void drawHostEntry(Graphics2D g2) {
-        drawBg(g2);
-        g2.setFont(new Font("Arial", Font.BOLD, 58));  centered(g2, "Join Server - Step 2/2", 200);
-        g2.setFont(new Font("Arial", Font.BOLD, 26));  centered(g2, "Name: " + nameInput, 310);
-        g2.setFont(new Font("Arial", Font.PLAIN, 30)); centered(g2, "Enter server IP address:", 370);
-        drawInputBox(g2, hostInput.toString(), 420);
-        g2.setFont(new Font("Arial", Font.ITALIC, 22)); centered(g2, "(leave blank for localhost)", 510);
-        g2.setFont(new Font("Arial", Font.PLAIN, 20));  centered(g2, "[ ENTER ] connect    [ ESC ] back", 630);
-        drawError(g2, 680);
-    }
-
-    private void drawInputBox(Graphics2D g2, String text, int y) {
-        int bw=500, bh=50, bx=(getWidth()-bw)/2;
-        g2.setColor(new Color(0,0,0,160)); g2.fillRoundRect(bx, y-35, bw, bh, 10, 10);
-        g2.setColor(Color.WHITE); g2.setStroke(new BasicStroke(2)); g2.drawRoundRect(bx, y-35, bw, bh, 10, 10);
-        String display = text + (frameCount%40<20 ? "|" : "");
-        g2.setFont(new Font("Monospaced", Font.PLAIN, 26));
-        g2.setColor(Color.WHITE); g2.drawString(display, bx+15, y);
-    }
-
-    private void drawError(Graphics2D g2, int y) {
-        if (!errorMsg.isEmpty()) {
-            g2.setFont(new Font("Arial", Font.BOLD, 22));
-            g2.setColor(Color.RED);
-            int x = (getWidth() - g2.getFontMetrics().stringWidth(errorMsg)) / 2;
-            g2.drawString(errorMsg, x, y);
-        }
-    }
-
-    // ── LOBBY UPDATE: Renders Ready states ────────────────────────────────────
-    private void drawLobby(Graphics2D g2, boolean isHost) {
-        drawBg(g2);
-        g2.setFont(new Font("Arial", Font.BOLD, 58)); centered(g2, "Multiplayer Lobby", 150);
-
-        try {
-            String ip = isHost
-                    ? InetAddress.getLocalHost().getHostAddress()
-                    : (netClient != null ? netClient.getServerHost() : "?");
-            String label = isHost
-                    ? "Your IP (share this): " + ip + "   Port: " + GameServer.PORT
-                    : "Connected to: " + ip + "   Port: " + GameServer.PORT;
-            g2.setFont(new Font("Arial", Font.PLAIN, 22));
-            centered(g2, label, 200);
-        } catch (Exception ignored) {}
-
-        g2.setFont(new Font("Arial", Font.BOLD, 28)); centered(g2, "Players:", 250);
-
-        int ly = 285;
-        boolean allReady = true;
-
-        for (int i = 0; i < lobbyList.size(); i++) {
-            NetworkClient.LobbyPlayer lp = lobbyList.get(i);
-            String pn = lp.name;
-            if (!lp.isReady) allReady = false;
-
-            boolean isH = netClient != null && pn.equals(netClient.getHostName());
-
-            // ── ADDED: Display Ready Status ──
-            String readyText = lp.isReady ? "  [READY]" : "  [NOT READY]";
-            String label = "  " + pn + (isH ? "  [HOST]" : "") + readyText;
-
-            g2.setFont(new Font("Arial", Font.BOLD, 26));
-            FontMetrics fm = g2.getFontMetrics();
-            int lx = (getWidth() - fm.stringWidth(label)) / 2;
-
-            // Color the text Green if Ready, Red if not ready
-            Color c = lp.isReady ? new Color(100, 255, 100) : new Color(255, 100, 100);
-
-            g2.setColor(Color.BLACK); g2.drawString(label, lx+2, ly+2);
-            g2.setColor(c);           g2.drawString(label, lx, ly);
-            ly += 40;
-        }
-
-        g2.setFont(new Font("Arial", Font.BOLD, 22));
-        centered(g2, "Your character:  [ Q ] prev    [ E ] next", 535);
-
-        int spW = 64, spH = 64;
-        int spX = getWidth() / 2 - spW / 2;
-        int spY = 548;
-
-        BufferedImage preview = (ghostSprites != null) ? ghostSprites[chosenSkinIndex][0] : null;
-        if (preview != null) {
-            g2.drawImage(preview, spX, spY, spW, spH, null);
-        } else {
-            g2.setColor(PLAYER_COLORS[chosenSkinIndex]);
-            g2.fillRect(spX, spY, spW, spH);
-        }
-
-        g2.setColor(frameCount % 60 < 30 ? Color.YELLOW : Color.WHITE);
-        g2.setStroke(new BasicStroke(2));
-        g2.drawRect(spX, spY, spW, spH);
-        g2.setStroke(new BasicStroke(1));
-
-        g2.setFont(new Font("Arial", Font.PLAIN, 18));
-        g2.setColor(Color.WHITE);
-        centered(g2, SKIN_NAMES[chosenSkinIndex], 628);
-
-        // ── ADDED: "Press R to Ready" instruction ──
-        g2.setFont(new Font("Arial", Font.BOLD, 24));
-        g2.setColor(new Color(150, 200, 255));
-        centered(g2, "Press [ R ] to Toggle Ready", 665);
-
-        if (isHost) {
-            boolean canStart = lobbyList.size() >= 1 && allReady; // Must be ready!
-            String btn = canStart ? "[ ENTER ] Start Game" : "Waiting for all players to be READY...";
-            g2.setFont(new Font("Arial", Font.BOLD, 34));
-            FontMetrics fm = g2.getFontMetrics();
-            int bx = (getWidth() - fm.stringWidth(btn)) / 2;
-            g2.setColor(canStart && frameCount%60<40 ? Color.YELLOW : new Color(180,180,180));
-            g2.drawString(btn, bx, 715);
-        } else {
-            g2.setFont(new Font("Arial", Font.ITALIC, 28));
-            centered(g2, "Waiting for host to start the game...", 715);
-        }
-
-        g2.setFont(new Font("Arial", Font.PLAIN, 20));
-        centered(g2, "[ ESC ] disconnect & return to menu", 750);
-
-        drawError(g2, 780);
     }
 
     private void drawHUD(Graphics2D g2) {
