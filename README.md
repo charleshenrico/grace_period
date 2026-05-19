@@ -119,6 +119,7 @@ cd grace_period
 ---
 
 ## Compile and Run
+Do this for different terminals to test networking.
 
 ### Windows
 
