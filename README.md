@@ -2,7 +2,7 @@
 
 **Grace Period** is a Java-based multiplayer maze survival game where players race through a **UPLB campus-inspired maze**, collect abilities, avoid traps, and reach the goal before time runs out.
 
-Built using **Java** with support for both **single-player** and **multiplayer** gameplay.
+Built using **Java** with support for both **single-player** and **multiplayer** gameplay with **chat feature**.
 
 ---
 
